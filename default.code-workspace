@@ -1,0 +1,64 @@
+{
+    // "folders": [
+    //     {
+    //         "path": ".",
+    //         "name": "root (maxa-ds-ci)"
+    //     },
+    //     {
+    //         "path": "core",
+    //         "name": "core"
+    //     },
+    //     {
+    //         "path": "feature-store",
+    //         "name": "feature-store"
+    //     },
+    // ],
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "editorconfig.editorconfig",
+            "charliermarsh.ruff",
+            "cab404.vscode-direnv",
+            "ms-azuretools.vscode-docker",
+            "tamasfe.even-better-toml",
+            "usernamehw.errorlens",
+            "streetsidesoftware.code-spell-checker",
+            "naumovs.color-highlight",
+            "redhat.vscode-yaml",
+            "snowflake.snowflake-vsc",
+            "timonwong.shellcheck"
+        ]
+    },
+    "settings": {
+        "window.title": "${dirty}${activeEditorShort}${separator}${activeRepositoryName}${separator}${appName}",
+        "files.encoding": "utf8",
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/.*_cache": true
+        },
+        "workbench.remoteIndicator.showExtensionRecommendations": true,
+        "[python]": {
+            "editor.defaultFormatter": "charliermarsh.ruff",
+            "editor.formatOnSave": true,
+            "editor.codeActionsOnSave": {
+                "source.organizeImports": "explicit"
+            }
+        },
+        "search.exclude": {
+            "**/venv": true,
+            "**/.venv": true,
+            "**/__pycache__": true,
+            "**/.*_cache": true,
+            "**/tmp": true
+        },
+        "editor.rulers": [
+            120,
+            132
+        ],
+        "ruff.organizeImports": true,
+        "ruff.nativeServer": true,
+        "terminal.integrated.hideOnStartup": "whenEmpty",
+        "python.analysis.typeCheckingMode": "basic",
+        "python.testing.pytestEnabled": true
+    }
+}
