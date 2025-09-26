@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import time
+from pathlib import Path
 
 import pandas as pd
 from loguru import logger
@@ -23,10 +25,105 @@ from src.transformations.rolling_features import create_rolling_features
 class EOMForecastingPipeline:
     """Pipeline for EOM forecasting feature engineering."""
 
-    def __init__(self, config: SegmentationConfig | None = None):
-        """Initialize pipeline with configuration."""
+    def __init__(self, config: SegmentationConfig | None = None, save_intermediate: bool = False, output_dir: str | None = None):
+        """Initialize pipeline with configuration.
+
+        Args:
+            config: Configuration object for the pipeline
+            save_intermediate: Whether to save intermediate results to files
+            output_dir: Directory to save intermediate results (defaults to 'intermediate_results')
+        """
         self.config = config or SegmentationConfig()
+        self.save_intermediate = save_intermediate
+        self.output_dir = Path(output_dir) if output_dir else Path("intermediate_results")
+
+        if self.save_intermediate:
+            self.output_dir.mkdir(exist_ok=True)
+            logger.info("Intermediate results will be saved to: {}", self.output_dir.absolute())
+
         logger.info("Initialized EOM Forecasting Pipeline with configuration: {}", self.config.__class__.__name__)
+
+    def _save_intermediate_result(self, df: pd.DataFrame, step_name: str, step_number: int) -> None:
+        """Save intermediate result to file if enabled.
+
+        Args:
+            df: DataFrame to save
+            step_name: Name of the transformation step
+            step_number: Step number in the pipeline
+        """
+        if not self.save_intermediate:
+            return
+
+        filename = f"step_{step_number:02d}_{step_name}.parquet"
+        filepath = self.output_dir / filename
+
+        try:
+            # Try Parquet first, fallback to CSV
+            try:
+                df.to_parquet(filepath, index=False)
+                logger.debug("Saved intermediate result: {} ({} rows × {} columns)", filename, len(df), len(df.columns))
+            except ImportError:
+                # Fallback to CSV if Parquet is not available
+                csv_filepath = filepath.with_suffix(".csv")
+                df.to_csv(csv_filepath, index=False)
+                logger.debug(
+                    "Saved intermediate result as CSV: {} ({} rows × {} columns)", csv_filepath.name, len(df), len(df.columns)
+                )
+        except Exception as e:
+            logger.warning("Failed to save intermediate result {}: {}", filename, e)
+
+    def list_intermediate_results(self) -> list[Path]:
+        """List all saved intermediate result files.
+
+        Returns:
+            List of Path objects for saved intermediate files
+        """
+        if not self.save_intermediate or not self.output_dir.exists():
+            return []
+
+        # Look for both parquet and csv files
+        parquet_files = list(self.output_dir.glob("step_*.parquet"))
+        csv_files = list(self.output_dir.glob("step_*.csv"))
+        return sorted(parquet_files + csv_files)
+
+    def load_intermediate_result(self, step_number: int) -> pd.DataFrame | None:
+        """Load a specific intermediate result by step number.
+
+        Args:
+            step_number: Step number to load (0-9)
+
+        Returns:
+            DataFrame if found, None otherwise
+        """
+        if not self.save_intermediate:
+            logger.warning("Intermediate saving is not enabled")
+            return None
+
+        # Look for both parquet and csv files
+        parquet_pattern = f"step_{step_number:02d}_*.parquet"
+        csv_pattern = f"step_{step_number:02d}_*.csv"
+
+        parquet_files = list(self.output_dir.glob(parquet_pattern))
+        csv_files = list(self.output_dir.glob(csv_pattern))
+
+        files = parquet_files + csv_files
+
+        if not files:
+            logger.warning("No intermediate result found for step {}", step_number)
+            return None
+
+        filepath = files[0]  # Take the first match
+        try:
+            if filepath.suffix == ".parquet":
+                df = pd.read_parquet(filepath)
+            else:
+                df = pd.read_csv(filepath)
+
+            logger.info("Loaded intermediate result: {} ({} rows × {} columns)", filepath.name, len(df), len(df.columns))
+            return df
+        except Exception as e:
+            logger.error("Failed to load intermediate result {}: {}", filepath.name, e)
+            return None
 
     def transform(self, df: pd.DataFrame, target_month: str | None = "2025-07-01") -> pd.DataFrame:
         """
@@ -47,10 +144,15 @@ class EOMForecastingPipeline:
         logger.info("Input data shape: {} rows × {} columns", initial_rows, initial_cols)
         logger.info("Target month: {}", target_month)
 
+        # Save input data if intermediate saving is enabled
+        if self.save_intermediate:
+            self._save_intermediate_result(df, "input_data", 0)
+
         # Step 1: Base data preparation
         step_start = time.time()
         logger.debug("Step 1/9: Starting base data preparation")
         df = prepare_base_data(df, self.config)
+        self._save_intermediate_result(df, "base_preparation", 1)
         logger.info(
             "Step 1/9: Base data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -62,6 +164,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 2/9: Starting monthly aggregations")
         df = create_monthly_aggregates(df, self.config)
+        self._save_intermediate_result(df, "monthly_aggregation", 2)
         logger.info(
             "Step 2/9: Monthly aggregations completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -73,6 +176,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 3/9: Starting rolling window features")
         df = create_rolling_features(df, self.config)
+        self._save_intermediate_result(df, "rolling_features", 3)
         logger.info(
             "Step 3/9: Rolling features completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -84,6 +188,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 4/9: Starting portfolio metrics calculation")
         df = calculate_portfolio_metrics(df, self.config)
+        self._save_intermediate_result(df, "portfolio_metrics", 4)
         logger.info(
             "Step 4/9: Portfolio metrics completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -95,6 +200,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 5/9: Starting pattern metrics calculation")
         df = calculate_pattern_metrics(df, self.config)
+        self._save_intermediate_result(df, "pattern_metrics", 5)
         logger.info(
             "Step 5/9: Pattern metrics completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -106,6 +212,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 6/9: Starting importance classification")
         df = classify_importance(df, self.config)
+        self._save_intermediate_result(df, "importance_classification", 6)
         logger.info(
             "Step 6/9: Importance classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -117,6 +224,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 7/9: Starting EOM pattern classification")
         df = classify_eom_patterns(df, self.config)
+        self._save_intermediate_result(df, "eom_pattern_classification", 7)
         logger.info(
             "Step 7/9: EOM pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -128,6 +236,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 8/9: Starting general pattern classification")
         df = classify_general_patterns(df, self.config)
+        self._save_intermediate_result(df, "general_pattern_classification", 8)
         logger.info(
             "Step 8/9: General pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -139,6 +248,7 @@ class EOMForecastingPipeline:
         step_start = time.time()
         logger.debug("Step 9/9: Starting final output generation")
         df = create_final_output(df, self.config, target_month)
+        self._save_intermediate_result(df, "final_output", 9)
         logger.info(
             "Step 9/9: Final output completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
@@ -154,6 +264,13 @@ class EOMForecastingPipeline:
             len(df.columns),
             round(100 * len(df) / initial_rows, 1),
         )
+
+        # Log intermediate results summary
+        if self.save_intermediate:
+            saved_files = self.list_intermediate_results()
+            logger.info("Saved {} intermediate result files to: {}", len(saved_files), self.output_dir.absolute())
+            for filepath in saved_files:
+                logger.debug("  - {}", filepath.name)
 
         return df
 
@@ -282,7 +399,11 @@ class EOMForecastingPipeline:
 
 
 def run_pipeline(
-    df: pd.DataFrame, config: SegmentationConfig | None = None, target_month: str | None = "2025-07-01"
+    df: pd.DataFrame,
+    config: SegmentationConfig | None = None,
+    target_month: str | None = "2025-07-01",
+    save_intermediate: bool = False,
+    output_dir: str | None = None,
 ) -> pd.DataFrame:
     """
     Convenience function to run the complete pipeline.
@@ -291,10 +412,12 @@ def run_pipeline(
         df: Input DataFrame with columns: dim_value, date, amount, is_last_work_day_of_month
         config: Optional configuration object
         target_month: Target month for final output filtering
+        save_intermediate: Whether to save intermediate results to files
+        output_dir: Directory to save intermediate results (defaults to 'intermediate_results')
 
     Returns:
         Transformed DataFrame with all features and classifications
     """
     logger.info("Running EOM forecasting pipeline via convenience function")
-    pipeline = EOMForecastingPipeline(config)
+    pipeline = EOMForecastingPipeline(config, save_intermediate, output_dir)
     return pipeline.transform(df, target_month)
