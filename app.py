@@ -45,11 +45,23 @@ def run_with_intermediate_results(
     target_month: str | None = None,
     list_results: bool = False,
     load_step: int | None = None,
+    use_sql_preparation: bool = True,
+    snowflake_source_table: str | None = None,
 ) -> None:
-    """Run pipeline with intermediate results functionality."""
+    """Run pipeline with intermediate results functionality.
 
-    # Create pipeline with intermediate saving
-    pipeline = EOMForecastingPipeline(config=config, save_intermediate=True, output_dir=output_dir)
+    Args:
+        df: Input DataFrame (can be None when using Snowflake SQL preparation)
+    """
+
+    # Create pipeline with intermediate saving and SQL options
+    pipeline = EOMForecastingPipeline(
+        config=config,
+        save_intermediate=True,
+        output_dir=output_dir,
+        use_sql_preparation=use_sql_preparation,
+        snowflake_source_table=snowflake_source_table,
+    )
 
     # Check if we should load an existing intermediate result
     if load_step is not None:
@@ -89,7 +101,7 @@ def run_with_intermediate_results(
         result = pipeline.transform(df, target_month)
 
         logger.success("Pipeline completed successfully!")
-        print(f"\nFinal Result Summary:")
+        print("\nFinal Result Summary:")
         print(f"Shape: {result.shape}")
         print(f"Columns: {len(result.columns)}")
 
@@ -98,7 +110,7 @@ def run_with_intermediate_results(
         available_key_columns = [col for col in key_columns if col in result.columns]
 
         if available_key_columns:
-            print(f"\nSample of key results:")
+            print("\nSample of key results:")
             print(result[available_key_columns].head())
 
         # List saved intermediate files
@@ -117,14 +129,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic pipeline run
-  python app.py
+  # RECOMMENDED: Production with Snowflake SQL (processes 100M+ rows in database)
+  python app.py --snowflake-source-table int__t__cad_core_banking_regular_time_series_recorded
   
-  # Run with intermediate results saving
-  python app.py --save-intermediate --output-dir results/
+  # Development: SQL-based preparation with pandas simulation (default behavior)
+  python app.py --save-intermediate --log-level DEBUG
   
-  # Run with custom target month and debug logging
-  python app.py --target-month 2025-01-01 --log-level DEBUG
+  # Production with intermediate results (handles massive datasets efficiently)
+  python app.py --save-intermediate --snowflake-source-table my_table --output-dir results/
+  
+  # Custom target month with SQL preparation
+  python app.py --target-month 2025-01-01 --snowflake-source-table my_table
+  
+  # Legacy: pandas-only approach (NOT recommended for large datasets)
+  python app.py --disable-sql-preparation
   
   # List existing intermediate results
   python app.py --list-results --output-dir results/
@@ -163,6 +181,20 @@ Examples:
         "--skip-data-fetch", action="store_true", help="Skip data fetching (for testing with intermediate results only)"
     )
 
+    # SQL preparation options (SQL-based is DEFAULT and RECOMMENDED)
+    parser.add_argument(
+        "--snowflake-source-table",
+        type=str,
+        help="Snowflake source table name for SQL-based preparation (RECOMMENDED for production - processes data directly in database)",
+        default="maxa_snbx.daniel_data_private.int__t__cad_core_banking_regular_time_series_recorded",
+    )
+
+    parser.add_argument(
+        "--disable-sql-preparation",
+        action="store_true",
+        help="Disable SQL-based preparation and use legacy pandas-only approach (NOT recommended for large datasets)",
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -173,24 +205,37 @@ Examples:
 
     try:
         # Handle intermediate results operations that don't need data
-        if args.list_results or args.load_step is not None:
-            if args.skip_data_fetch:
-                logger.info("Skipping data fetch for intermediate results operation")
-                config = SegmentationConfig()
-                run_with_intermediate_results(
-                    None, config, args.output_dir, list_results=args.list_results, load_step=args.load_step
-                )
-                return
+        if (args.list_results or args.load_step is not None) and args.skip_data_fetch:
+            logger.info("Skipping data fetch for intermediate results operation")
+            config = SegmentationConfig()
+            run_with_intermediate_results(
+                None,
+                config,
+                args.output_dir,
+                list_results=args.list_results,
+                load_step=args.load_step,
+                use_sql_preparation=not args.disable_sql_preparation,
+                snowflake_source_table=args.snowflake_source_table,
+            )
+            return
 
-        # Fetch data from Snowflake
-        if not args.skip_data_fetch:
-            logger.info("Connecting to Snowflake and fetching data...")
+        # Determine if we need to fetch raw transaction data
+        use_sql_preparation = not args.disable_sql_preparation
+        snowflake_source_table = args.snowflake_source_table
+
+        # Skip data fetch if using Snowflake SQL preparation (SQL handles data directly)
+        if use_sql_preparation and snowflake_source_table:
+            logger.info("Using Snowflake SQL-based preparation - skipping raw data fetch")
+            logger.info("SQL query will process data directly from table: {}", snowflake_source_table)
+            df = None  # No DataFrame needed for SQL execution
+        elif not args.skip_data_fetch:
+            logger.info("Fetching raw transaction data from Snowflake...")
             session = snowpark_session()
             source_config = SourceConfig()
             df = fetch_timeseries_data(session, source_config.transaction_table_name)
             logger.info("Data fetched: {} rows × {} columns", len(df), len(df.columns))
         else:
-            logger.warning("Skipping data fetch - using empty DataFrame")
+            logger.warning("Skipping data fetch - using empty DataFrame for pandas simulation")
             import pandas as pd
 
             df = pd.DataFrame()
@@ -198,15 +243,41 @@ Examples:
         # Setup configuration
         config = SegmentationConfig()
 
+        # Log SQL preparation mode (settings already determined above)
+        if use_sql_preparation:
+            if snowflake_source_table:
+                logger.info("Mode: Snowflake SQL-based preparation (OPTIMAL for large datasets)")
+            else:
+                logger.info("Mode: Pandas simulation of SQL-based preparation (development/testing)")
+                logger.info("💡 TIP: For production with large datasets, use --snowflake-source-table TABLE_NAME")
+        else:
+            logger.info("Mode: Traditional pandas-only preparation (legacy mode)")
+            logger.warning("⚠️  Pandas-only mode not recommended for large datasets")
+
         # Run pipeline based on options
         if args.save_intermediate or args.list_results or args.load_step is not None:
             run_with_intermediate_results(
-                df, config, args.output_dir, args.target_month, list_results=args.list_results, load_step=args.load_step
+                df,
+                config,
+                args.output_dir,
+                args.target_month,
+                list_results=args.list_results,
+                load_step=args.load_step,
+                use_sql_preparation=use_sql_preparation,
+                snowflake_source_table=snowflake_source_table,
             )
         else:
             # Standard pipeline run
             logger.info("Running standard pipeline (no intermediate results)")
-            result = run_pipeline(df, config, args.target_month)
+            result = run_pipeline(
+                df,
+                config,
+                args.target_month,
+                save_intermediate=False,
+                output_dir=None,
+                use_sql_preparation=use_sql_preparation,
+                snowflake_source_table=snowflake_source_table,
+            )
 
             logger.success("Pipeline completed successfully!")
             print(f"\nResult shape: {result.shape}")

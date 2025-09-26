@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
@@ -21,28 +20,43 @@ from src.transformations.monthly_aggregation import create_monthly_aggregates
 from src.transformations.pattern_metrics import calculate_pattern_metrics
 from src.transformations.portfolio_metrics import calculate_portfolio_metrics
 from src.transformations.rolling_features import create_rolling_features
+from src.transformations.sql_data_preparation import execute_sql_data_preparation, execute_sql_data_preparation_snowflake
 
 
 class EOMForecastingPipeline:
     """Pipeline for EOM forecasting feature engineering."""
 
-    def __init__(self, config: SegmentationConfig | None = None, save_intermediate: bool = False, output_dir: str | None = None):
+    def __init__(
+        self,
+        config: SegmentationConfig | None = None,
+        save_intermediate: bool = False,
+        output_dir: str | None = None,
+        use_sql_preparation: bool = True,
+        snowflake_source_table: str | None = None,
+    ):
         """Initialize pipeline with configuration.
 
         Args:
             config: Configuration object for the pipeline
             save_intermediate: Whether to save intermediate results to files
             output_dir: Directory to save intermediate results (defaults to 'intermediate_results')
+            use_sql_preparation: Whether to use SQL-based preparation for steps 1-3 (recommended for large datasets)
+            snowflake_source_table: Name of the Snowflake source table (if None, uses pandas simulation)
         """
         self.config = config or SegmentationConfig()
         self.save_intermediate = save_intermediate
         self.output_dir = Path(output_dir) if output_dir else Path("intermediate_results")
+        self.use_sql_preparation = use_sql_preparation
+        self.snowflake_source_table = snowflake_source_table
 
         if self.save_intermediate:
             self.output_dir.mkdir(exist_ok=True)
             logger.info("Intermediate results will be saved to: {}", self.output_dir.absolute())
 
         logger.info("Initialized EOM Forecasting Pipeline with configuration: {}", self.config.__class__.__name__)
+        logger.info("SQL-based preparation: {}", "enabled" if use_sql_preparation else "disabled")
+        if use_sql_preparation and snowflake_source_table:
+            logger.info("Snowflake source table: {}", snowflake_source_table)
 
     def _save_intermediate_result(self, df: pd.DataFrame, step_name: str, step_number: int, suffix: str = "") -> None:
         """Save intermediate result to file if enabled.
@@ -127,71 +141,118 @@ class EOMForecastingPipeline:
             logger.error("Failed to load intermediate result {}: {}", filepath.name, e)
             return None
 
-    def transform(self, df: pd.DataFrame, target_month: str | None = "2025-07-01") -> pd.DataFrame:
+    def transform(self, df: pd.DataFrame | None, target_month: str | None = "2025-07-01") -> pd.DataFrame:
         """
         Execute the complete transformation pipeline.
 
         Args:
             df: Input DataFrame with columns: dim_value, date, amount, is_last_work_day_of_month
+                (can be None when using Snowflake SQL preparation)
             target_month: Target month for final output filtering (format: 'YYYY-MM-DD')
 
         Returns:
             Transformed DataFrame with all features and classifications
         """
         start_time = time.time()
-        initial_rows = len(df)
-        initial_cols = len(df.columns)
 
-        logger.info("Starting EOM forecasting pipeline transformation")
-        logger.info("Input data shape: {} rows × {} columns", initial_rows, initial_cols)
+        # Handle case where df is None (Snowflake SQL mode)
+        if df is not None:
+            initial_rows = len(df)
+            initial_cols = len(df.columns)
+            logger.info("Starting EOM forecasting pipeline transformation")
+            logger.info("Input data shape: {} rows × {} columns", initial_rows, initial_cols)
+        else:
+            initial_rows = 0
+            initial_cols = 0
+            logger.info("Starting EOM forecasting pipeline transformation")
+            logger.info("Input data: Snowflake SQL mode (no DataFrame provided)")
+
         logger.info("Target month: {}", target_month)
 
-        # Save input data if intermediate saving is enabled
-        if self.save_intermediate:
+        # Save input data if intermediate saving is enabled (only if df is provided)
+        if self.save_intermediate and df is not None:
             self._save_intermediate_result(df, "input_data", 0)
 
-        # Step 1: Base data preparation
-        step_start = time.time()
-        logger.debug("Step 1/10: Starting base data preparation")
-        df = prepare_base_data(df, self.config)
-        self._save_intermediate_result(df, "base_preparation", 1)
-        logger.info(
-            "Step 1/10: Base data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
-            time.time() - step_start,
-            len(df),
-            len(df.columns),
-        )
+        if self.use_sql_preparation:
+            # SQL-based preparation: Steps 1-3 combined for better performance on large datasets
+            step_start = time.time()
 
-        # Step 2: Amount clipping
-        step_start = time.time()
-        logger.debug("Step 2/10: Starting amount clipping")
-        df = clip_small_amounts(df, self.config)
-        self._save_intermediate_result(df, "amount_clipping", 2)
+            if self.snowflake_source_table:
+                # Use Snowflake SQL execution with parameterized queries
+                logger.debug("Steps 1-3/10: Starting Snowflake SQL-based data preparation (base prep + clipping + monthly agg)")
+                df, clipping_impact = execute_sql_data_preparation_snowflake(self.config, self.snowflake_source_table)
+            else:
+                # Use pandas simulation for testing/development
+                logger.debug(
+                    "Steps 1-3/10: Starting SQL-based data preparation with pandas simulation (base prep + clipping + monthly agg)"
+                )
+                df, clipping_impact = execute_sql_data_preparation(df, self.config)
 
-        # Save clipping impact analysis if available
-        if hasattr(df, "attrs") and "clipping_impact_analysis" in df.attrs:
-            impact_df = df.attrs["clipping_impact_analysis"]
-            if len(impact_df) > 0:
-                self._save_intermediate_result(impact_df, "amount_clipping_impact", 2, suffix="_impact")
+            # Save intermediate results for each logical step
+            self._save_intermediate_result(df, "sql_monthly_aggregation", 3)
 
-        logger.info(
-            "Step 2/10: Amount clipping completed in {:.2f}s - Shape: {} rows × {} columns",
-            time.time() - step_start,
-            len(df),
-            len(df.columns),
-        )
+            # Create and save clipping impact analysis DataFrame
+            if clipping_impact:
+                impact_df = pd.DataFrame([clipping_impact])
+                self._save_intermediate_result(impact_df, "sql_clipping_impact", 2, suffix="_impact")
 
-        # Step 3: Monthly aggregations
-        step_start = time.time()
-        logger.debug("Step 3/10: Starting monthly aggregations")
-        df = create_monthly_aggregates(df, self.config)
-        self._save_intermediate_result(df, "monthly_aggregation", 3)
-        logger.info(
-            "Step 3/10: Monthly aggregations completed in {:.2f}s - Shape: {} rows × {} columns",
-            time.time() - step_start,
-            len(df),
-            len(df.columns),
-        )
+                # Store impact analysis as DataFrame attributes for compatibility
+                df.attrs = df.attrs if hasattr(df, "attrs") else {}
+                df.attrs["clipping_impact_analysis"] = impact_df
+                df.attrs["clipping_threshold"] = clipping_impact.get("threshold", self.config.amount_clipping_threshold)
+                df.attrs["total_amount_clipped"] = clipping_impact.get("total_amount_clipped", 0)
+                df.attrs["clipping_rate_pct"] = clipping_impact.get("clipping_rate_pct", 0)
+
+            logger.info(
+                "Steps 1-3/10: SQL-based data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
+                time.time() - step_start,
+                len(df),
+                len(df.columns),
+            )
+        else:
+            # Traditional pandas-based approach (for smaller datasets or debugging)
+            # Step 1: Base data preparation
+            step_start = time.time()
+            logger.debug("Step 1/10: Starting base data preparation")
+            df = prepare_base_data(df, self.config)
+            self._save_intermediate_result(df, "base_preparation", 1)
+            logger.info(
+                "Step 1/10: Base data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
+                time.time() - step_start,
+                len(df),
+                len(df.columns),
+            )
+
+            # Step 2: Amount clipping
+            step_start = time.time()
+            logger.debug("Step 2/10: Starting amount clipping")
+            df = clip_small_amounts(df, self.config)
+            self._save_intermediate_result(df, "amount_clipping", 2)
+
+            # Save clipping impact analysis if available
+            if hasattr(df, "attrs") and "clipping_impact_analysis" in df.attrs:
+                impact_df = df.attrs["clipping_impact_analysis"]
+                if len(impact_df) > 0:
+                    self._save_intermediate_result(impact_df, "amount_clipping_impact", 2, suffix="_impact")
+
+            logger.info(
+                "Step 2/10: Amount clipping completed in {:.2f}s - Shape: {} rows × {} columns",
+                time.time() - step_start,
+                len(df),
+                len(df.columns),
+            )
+
+            # Step 3: Monthly aggregations
+            step_start = time.time()
+            logger.debug("Step 3/10: Starting monthly aggregations")
+            df = create_monthly_aggregates(df, self.config)
+            self._save_intermediate_result(df, "monthly_aggregation", 3)
+            logger.info(
+                "Step 3/10: Monthly aggregations completed in {:.2f}s - Shape: {} rows × {} columns",
+                time.time() - step_start,
+                len(df),
+                len(df.columns),
+            )
 
         # Step 4: Rolling window features
         step_start = time.time()
@@ -431,25 +492,30 @@ class EOMForecastingPipeline:
 
 
 def run_pipeline(
-    df: pd.DataFrame,
+    df: pd.DataFrame | None,
     config: SegmentationConfig | None = None,
     target_month: str | None = "2025-07-01",
     save_intermediate: bool = False,
     output_dir: str | None = None,
+    use_sql_preparation: bool = True,
+    snowflake_source_table: str | None = None,
 ) -> pd.DataFrame:
     """
     Convenience function to run the complete pipeline.
 
     Args:
         df: Input DataFrame with columns: dim_value, date, amount, is_last_work_day_of_month
+            (can be None when using Snowflake SQL preparation)
         config: Optional configuration object
         target_month: Target month for final output filtering
         save_intermediate: Whether to save intermediate results to files
         output_dir: Directory to save intermediate results (defaults to 'intermediate_results')
+        use_sql_preparation: Whether to use SQL-based preparation for steps 1-3 (recommended for large datasets)
+        snowflake_source_table: Name of the Snowflake source table (if None, uses pandas simulation)
 
     Returns:
         Transformed DataFrame with all features and classifications
     """
     logger.info("Running EOM forecasting pipeline via convenience function")
-    pipeline = EOMForecastingPipeline(config, save_intermediate, output_dir)
+    pipeline = EOMForecastingPipeline(config, save_intermediate, output_dir, use_sql_preparation, snowflake_source_table)
     return pipeline.transform(df, target_month)
