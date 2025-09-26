@@ -7,8 +7,9 @@ from src.config.source import SourceConfig
 
 def main():
     session = snowpark_session()
-    df = fetch_timeseries_data(session, SourceConfig.timeseries_table_name)
-    config = SegmentationConfig()
+    source_config = SourceConfig()
+    df = fetch_timeseries_data(session, source_config.transaction_table_name)
+    config = SegmentationConfig(source_config=source_config)
     result = run_pipeline(df, config)
     print(result)
 
