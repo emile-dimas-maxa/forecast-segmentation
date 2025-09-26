@@ -12,6 +12,9 @@ class SegmentationConfig(BaseModel):
     start_date: date = date(2022, 1, 1)
     end_date: date = date.today()
 
+    # Amount filtering
+    amount_clipping_threshold: float = 1.0  # Clip amounts below this value to 0
+
     # Window sizes
     ma_window_short: int = 3
     pre_eom_signal_window: int = 6

@@ -11,6 +11,7 @@ from loguru import logger
 
 from src.config.segmentation import SegmentationConfig
 
+from src.transformations.amount_clipping import clip_small_amounts
 from src.transformations.base_preparation import prepare_base_data
 from src.transformations.eom_pattern_classification import classify_eom_patterns
 from src.transformations.final_output import create_final_output
@@ -43,18 +44,19 @@ class EOMForecastingPipeline:
 
         logger.info("Initialized EOM Forecasting Pipeline with configuration: {}", self.config.__class__.__name__)
 
-    def _save_intermediate_result(self, df: pd.DataFrame, step_name: str, step_number: int) -> None:
+    def _save_intermediate_result(self, df: pd.DataFrame, step_name: str, step_number: int, suffix: str = "") -> None:
         """Save intermediate result to file if enabled.
 
         Args:
             df: DataFrame to save
             step_name: Name of the transformation step
             step_number: Step number in the pipeline
+            suffix: Optional suffix to add to filename
         """
         if not self.save_intermediate:
             return
 
-        filename = f"step_{step_number:02d}_{step_name}.parquet"
+        filename = f"step_{step_number:02d}_{step_name}{suffix}.parquet"
         filepath = self.output_dir / filename
 
         try:
@@ -150,107 +152,126 @@ class EOMForecastingPipeline:
 
         # Step 1: Base data preparation
         step_start = time.time()
-        logger.debug("Step 1/9: Starting base data preparation")
+        logger.debug("Step 1/10: Starting base data preparation")
         df = prepare_base_data(df, self.config)
         self._save_intermediate_result(df, "base_preparation", 1)
         logger.info(
-            "Step 1/9: Base data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 1/10: Base data preparation completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 2: Monthly aggregations
+        # Step 2: Amount clipping
         step_start = time.time()
-        logger.debug("Step 2/9: Starting monthly aggregations")
+        logger.debug("Step 2/10: Starting amount clipping")
+        df = clip_small_amounts(df, self.config)
+        self._save_intermediate_result(df, "amount_clipping", 2)
+
+        # Save clipping impact analysis if available
+        if hasattr(df, "attrs") and "clipping_impact_analysis" in df.attrs:
+            impact_df = df.attrs["clipping_impact_analysis"]
+            if len(impact_df) > 0:
+                self._save_intermediate_result(impact_df, "amount_clipping_impact", 2, suffix="_impact")
+
+        logger.info(
+            "Step 2/10: Amount clipping completed in {:.2f}s - Shape: {} rows × {} columns",
+            time.time() - step_start,
+            len(df),
+            len(df.columns),
+        )
+
+        # Step 3: Monthly aggregations
+        step_start = time.time()
+        logger.debug("Step 3/10: Starting monthly aggregations")
         df = create_monthly_aggregates(df, self.config)
-        self._save_intermediate_result(df, "monthly_aggregation", 2)
+        self._save_intermediate_result(df, "monthly_aggregation", 3)
         logger.info(
-            "Step 2/9: Monthly aggregations completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 3/10: Monthly aggregations completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 3: Rolling window features
+        # Step 4: Rolling window features
         step_start = time.time()
-        logger.debug("Step 3/9: Starting rolling window features")
+        logger.debug("Step 4/10: Starting rolling window features")
         df = create_rolling_features(df, self.config)
-        self._save_intermediate_result(df, "rolling_features", 3)
+        self._save_intermediate_result(df, "rolling_features", 4)
         logger.info(
-            "Step 3/9: Rolling features completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 4/10: Rolling features completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 4: Portfolio metrics
+        # Step 5: Portfolio metrics
         step_start = time.time()
-        logger.debug("Step 4/9: Starting portfolio metrics calculation")
+        logger.debug("Step 5/10: Starting portfolio metrics calculation")
         df = calculate_portfolio_metrics(df, self.config)
-        self._save_intermediate_result(df, "portfolio_metrics", 4)
+        self._save_intermediate_result(df, "portfolio_metrics", 5)
         logger.info(
-            "Step 4/9: Portfolio metrics completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 5/10: Portfolio metrics completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 5: Pattern metrics
+        # Step 6: Pattern metrics
         step_start = time.time()
-        logger.debug("Step 5/9: Starting pattern metrics calculation")
+        logger.debug("Step 6/10: Starting pattern metrics calculation")
         df = calculate_pattern_metrics(df, self.config)
-        self._save_intermediate_result(df, "pattern_metrics", 5)
+        self._save_intermediate_result(df, "pattern_metrics", 6)
         logger.info(
-            "Step 5/9: Pattern metrics completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 6/10: Pattern metrics completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 6: Importance classification
+        # Step 7: Importance classification
         step_start = time.time()
-        logger.debug("Step 6/9: Starting importance classification")
+        logger.debug("Step 7/10: Starting importance classification")
         df = classify_importance(df, self.config)
-        self._save_intermediate_result(df, "importance_classification", 6)
+        self._save_intermediate_result(df, "importance_classification", 7)
         logger.info(
-            "Step 6/9: Importance classification completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 7/10: Importance classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 7: EOM pattern classification
+        # Step 8: EOM pattern classification
         step_start = time.time()
-        logger.debug("Step 7/9: Starting EOM pattern classification")
+        logger.debug("Step 8/10: Starting EOM pattern classification")
         df = classify_eom_patterns(df, self.config)
-        self._save_intermediate_result(df, "eom_pattern_classification", 7)
+        self._save_intermediate_result(df, "eom_pattern_classification", 8)
         logger.info(
-            "Step 7/9: EOM pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 8/10: EOM pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 8: General pattern classification
+        # Step 9: General pattern classification
         step_start = time.time()
-        logger.debug("Step 8/9: Starting general pattern classification")
+        logger.debug("Step 9/10: Starting general pattern classification")
         df = classify_general_patterns(df, self.config)
-        self._save_intermediate_result(df, "general_pattern_classification", 8)
+        self._save_intermediate_result(df, "general_pattern_classification", 9)
         logger.info(
-            "Step 8/9: General pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 9/10: General pattern classification completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
         )
 
-        # Step 9: Final output with recommendations
+        # Step 10: Final output with recommendations
         step_start = time.time()
-        logger.debug("Step 9/9: Starting final output generation")
+        logger.debug("Step 10/10: Starting final output generation")
         df = create_final_output(df, self.config, target_month)
-        self._save_intermediate_result(df, "final_output", 9)
+        self._save_intermediate_result(df, "final_output", 10)
         logger.info(
-            "Step 9/9: Final output completed in {:.2f}s - Shape: {} rows × {} columns",
+            "Step 10/10: Final output completed in {:.2f}s - Shape: {} rows × {} columns",
             time.time() - step_start,
             len(df),
             len(df.columns),
@@ -294,98 +315,109 @@ class EOMForecastingPipeline:
 
         # Step 1: Base preparation
         step_start = time.time()
-        logger.debug("Step 1/9: Base data preparation")
+        logger.debug("Step 1/10: Base data preparation")
         results["base_data"] = prepare_base_data(df, self.config)
         logger.info(
-            "Step 1/9: Base preparation - {} rows × {} columns ({:.2f}s)",
+            "Step 1/10: Base preparation - {} rows × {} columns ({:.2f}s)",
             len(results["base_data"]),
             len(results["base_data"].columns),
             time.time() - step_start,
         )
 
-        # Step 2: Monthly aggregation
+        # Step 2: Amount clipping
         step_start = time.time()
-        logger.debug("Step 2/9: Monthly aggregation")
-        results["monthly_aggregates"] = create_monthly_aggregates(results["base_data"], self.config)
+        logger.debug("Step 2/10: Amount clipping")
+        results["amount_clipping"] = clip_small_amounts(results["base_data"], self.config)
         logger.info(
-            "Step 2/9: Monthly aggregation - {} rows × {} columns ({:.2f}s)",
+            "Step 2/10: Amount clipping - {} rows × {} columns ({:.2f}s)",
+            len(results["amount_clipping"]),
+            len(results["amount_clipping"].columns),
+            time.time() - step_start,
+        )
+
+        # Step 3: Monthly aggregation
+        step_start = time.time()
+        logger.debug("Step 3/10: Monthly aggregation")
+        results["monthly_aggregates"] = create_monthly_aggregates(results["amount_clipping"], self.config)
+        logger.info(
+            "Step 3/10: Monthly aggregation - {} rows × {} columns ({:.2f}s)",
             len(results["monthly_aggregates"]),
             len(results["monthly_aggregates"].columns),
             time.time() - step_start,
         )
 
-        # Step 3: Rolling features
+        # Step 4: Rolling features
         step_start = time.time()
-        logger.debug("Step 3/9: Rolling features")
+        logger.debug("Step 4/10: Rolling features")
         results["rolling_features"] = create_rolling_features(results["monthly_aggregates"], self.config)
         logger.info(
-            "Step 3/9: Rolling features - {} rows × {} columns ({:.2f}s)",
+            "Step 4/10: Rolling features - {} rows × {} columns ({:.2f}s)",
             len(results["rolling_features"]),
             len(results["rolling_features"].columns),
             time.time() - step_start,
         )
 
-        # Step 4: Portfolio metrics
+        # Step 5: Portfolio metrics
         step_start = time.time()
-        logger.debug("Step 4/9: Portfolio metrics")
+        logger.debug("Step 5/10: Portfolio metrics")
         results["portfolio_metrics"] = calculate_portfolio_metrics(results["rolling_features"], self.config)
         logger.info(
-            "Step 4/9: Portfolio metrics - {} rows × {} columns ({:.2f}s)",
+            "Step 5/10: Portfolio metrics - {} rows × {} columns ({:.2f}s)",
             len(results["portfolio_metrics"]),
             len(results["portfolio_metrics"].columns),
             time.time() - step_start,
         )
 
-        # Step 5: Pattern metrics
+        # Step 6: Pattern metrics
         step_start = time.time()
-        logger.debug("Step 5/9: Pattern metrics")
+        logger.debug("Step 6/10: Pattern metrics")
         results["pattern_metrics"] = calculate_pattern_metrics(results["portfolio_metrics"], self.config)
         logger.info(
-            "Step 5/9: Pattern metrics - {} rows × {} columns ({:.2f}s)",
+            "Step 6/10: Pattern metrics - {} rows × {} columns ({:.2f}s)",
             len(results["pattern_metrics"]),
             len(results["pattern_metrics"].columns),
             time.time() - step_start,
         )
 
-        # Step 6: Importance classification
+        # Step 7: Importance classification
         step_start = time.time()
-        logger.debug("Step 6/9: Importance classification")
+        logger.debug("Step 7/10: Importance classification")
         results["importance_classification"] = classify_importance(results["pattern_metrics"], self.config)
         logger.info(
-            "Step 6/9: Importance classification - {} rows × {} columns ({:.2f}s)",
+            "Step 7/10: Importance classification - {} rows × {} columns ({:.2f}s)",
             len(results["importance_classification"]),
             len(results["importance_classification"].columns),
             time.time() - step_start,
         )
 
-        # Step 7: EOM patterns
+        # Step 8: EOM patterns
         step_start = time.time()
-        logger.debug("Step 7/9: EOM patterns")
+        logger.debug("Step 8/10: EOM patterns")
         results["eom_patterns"] = classify_eom_patterns(results["importance_classification"], self.config)
         logger.info(
-            "Step 7/9: EOM patterns - {} rows × {} columns ({:.2f}s)",
+            "Step 8/10: EOM patterns - {} rows × {} columns ({:.2f}s)",
             len(results["eom_patterns"]),
             len(results["eom_patterns"].columns),
             time.time() - step_start,
         )
 
-        # Step 8: General patterns
+        # Step 9: General patterns
         step_start = time.time()
-        logger.debug("Step 8/9: General patterns")
+        logger.debug("Step 9/10: General patterns")
         results["general_patterns"] = classify_general_patterns(results["eom_patterns"], self.config)
         logger.info(
-            "Step 8/9: General patterns - {} rows × {} columns ({:.2f}s)",
+            "Step 9/10: General patterns - {} rows × {} columns ({:.2f}s)",
             len(results["general_patterns"]),
             len(results["general_patterns"].columns),
             time.time() - step_start,
         )
 
-        # Step 9: Final output
+        # Step 10: Final output
         step_start = time.time()
-        logger.debug("Step 9/9: Final output")
+        logger.debug("Step 10/10: Final output")
         results["final_output"] = create_final_output(results["general_patterns"], self.config)
         logger.info(
-            "Step 9/9: Final output - {} rows × {} columns ({:.2f}s)",
+            "Step 10/10: Final output - {} rows × {} columns ({:.2f}s)",
             len(results["final_output"]),
             len(results["final_output"].columns),
             time.time() - step_start,

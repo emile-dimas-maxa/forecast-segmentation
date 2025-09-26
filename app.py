@@ -151,7 +151,7 @@ Examples:
 
     parser.add_argument("--list-results", action="store_true", help="List existing intermediate result files and exit")
 
-    parser.add_argument("--load-step", type=int, choices=range(0, 10), help="Load and display a specific intermediate step (0-9)")
+    parser.add_argument("--load-step", type=int, choices=range(0, 11), help="Load and display a specific intermediate step (0-10)")
 
     # Logging options
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO", help="Set the logging level")
