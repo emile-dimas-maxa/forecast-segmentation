@@ -1,17 +1,35 @@
 """Base data preparation transformations."""
 
+import time
+
 import pandas as pd
+from loguru import logger
 
 from src.config.segmentation import SegmentationConfig
 
 
 def prepare_base_data(df: pd.DataFrame, config: SegmentationConfig = None) -> pd.DataFrame:
     """Prepare base data with calendar features and EOM indicators."""
+    start_time = time.time()
+    initial_rows = len(df)
+
+    logger.debug("Starting base data preparation")
+    logger.debug("Input shape: {} rows × {} columns", initial_rows, len(df.columns))
+
     if config is None:
         config = SegmentationConfig()
 
     # Filter date range and select columns
-    df = df[(df["date"] >= config.start_date) & (df["date"] <= config.end_date)].copy()
+    start_date_ts = pd.Timestamp(config.start_date)
+    end_date_ts = pd.Timestamp(config.end_date)
+    df = df[(df["date"] >= start_date_ts) & (df["date"] <= end_date_ts)].copy()
+    logger.debug(
+        "Filtered date range {}-{}: {} rows retained ({:.1f}%)",
+        config.start_date,
+        config.end_date,
+        len(df),
+        100 * len(df) / initial_rows,
+    )
 
     # Add calendar features
     df["month"] = df["date"].dt.to_period("M")
@@ -33,5 +51,8 @@ def prepare_base_data(df: pd.DataFrame, config: SegmentationConfig = None) -> pd
         )
         .values
     )
+
+    elapsed_time = time.time() - start_time
+    logger.debug("Base data preparation completed in {:.2f}s - {} rows × {} columns", elapsed_time, len(df), len(df.columns))
 
     return df.reset_index(drop=True)

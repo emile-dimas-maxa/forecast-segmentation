@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from src.config.segmentation import SegmentationConfig
 
@@ -153,6 +155,12 @@ def calculate_archetype_distance(
 
 def classify_eom_patterns(df: pd.DataFrame, config: SegmentationConfig = None) -> pd.DataFrame:
     """Classify EOM patterns using smooth scoring and distance-based approach."""
+    start_time = time.time()
+    initial_rows = len(df)
+
+    logger.debug("Starting EOM pattern classification")
+    logger.debug("Input shape: {} rows × {} columns", initial_rows, len(df.columns))
+
     if config is None:
         config = SegmentationConfig()
 
@@ -160,8 +168,12 @@ def classify_eom_patterns(df: pd.DataFrame, config: SegmentationConfig = None) -
 
     # Initialize archetypes
     archetypes = EOMArchetypes()
+    logger.debug(
+        "Initialized {} archetypes: {}", len(archetypes.get_all_archetypes()), list(archetypes.get_all_archetypes().keys())
+    )
 
     # Calculate smooth scores
+    logger.debug("Calculating smooth scores (regularity, stability, recency, concentration, volume importance)")
     df["regularity_score"] = 100 * (1 / (1 + np.exp(-10 * (df["eom_frequency"] - 0.5))))
     df["stability_score"] = 100 * np.exp(-2 * np.maximum(df["eom_cv"], 0))
 
@@ -190,6 +202,8 @@ def classify_eom_patterns(df: pd.DataFrame, config: SegmentationConfig = None) -
 
     # Calculate distances to pattern archetypes using the new archetype system
     temperature = 20.0
+
+    logger.debug("Calculating distances to {} archetypes with temperature={}", len(archetypes.get_all_archetypes()), temperature)
 
     # Calculate distances for each archetype
     for archetype_key, archetype in archetypes.get_all_archetypes().items():
@@ -254,9 +268,16 @@ def classify_eom_patterns(df: pd.DataFrame, config: SegmentationConfig = None) -
 
     df["eom_pattern"] = df.apply(get_primary_pattern, axis=1)
 
+    # Log pattern distribution
+    pattern_counts = df["eom_pattern"].value_counts()
+    logger.debug("Pattern distribution: {}", pattern_counts.to_dict())
+
     # Pattern confidence - get max probability across all archetypes
     prob_columns = [f"prob_{key}" for key in archetypes.get_all_archetypes()]
     df["eom_pattern_confidence"] = df[prob_columns].max(axis=1)
+
+    avg_confidence = df["eom_pattern_confidence"].mean()
+    logger.debug("Average pattern confidence: {:.3f}", avg_confidence)
 
     # Classification entropy - calculate for regular archetypes only (excluding NO_EOM and EMERGING)
     def calculate_entropy(row):
@@ -272,10 +293,18 @@ def classify_eom_patterns(df: pd.DataFrame, config: SegmentationConfig = None) -
         return entropy
 
     df["classification_entropy"] = df.apply(calculate_entropy, axis=1)
+    avg_entropy = df["classification_entropy"].mean()
+    logger.debug("Average classification entropy: {:.3f}", avg_entropy)
 
     # High risk flag
     df["eom_high_risk_flag"] = (
         df["eom_importance_tier"].isin(["CRITICAL", "HIGH"]) & (df["stability_score"] < 30) & (df["concentration_score"] >= 50)
     ).astype(int)
+
+    high_risk_count = df["eom_high_risk_flag"].sum()
+    logger.debug("High risk entities identified: {} ({:.1f}%)", high_risk_count, 100 * high_risk_count / len(df))
+
+    elapsed_time = time.time() - start_time
+    logger.debug("EOM pattern classification completed in {:.2f}s - {} rows × {} columns", elapsed_time, len(df), len(df.columns))
 
     return df

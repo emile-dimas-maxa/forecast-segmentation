@@ -1,13 +1,23 @@
 """Final output transformation with recommendations and growth metrics."""
 
+import time
+
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from src.config.segmentation import SegmentationConfig
 
 
 def create_final_output(df: pd.DataFrame, config: SegmentationConfig = None, target_month: str = "2025-07-01") -> pd.DataFrame:
     """Create final output with combined priority, recommendations, and growth metrics."""
+    start_time = time.time()
+    initial_rows = len(df)
+
+    logger.debug("Starting final output generation")
+    logger.debug("Input shape: {} rows × {} columns", initial_rows, len(df.columns))
+    logger.debug("Target month: {}", target_month)
+
     if config is None:
         config = SegmentationConfig()
 
@@ -231,4 +241,19 @@ def create_final_output(df: pd.DataFrame, config: SegmentationConfig = None, tar
         if col in result.columns:
             result[col] = (result[col] * 100).round(1)
 
-    return result.sort_values(["combined_priority", "dim_value"], ascending=[False, True])
+    elapsed_time = time.time() - start_time
+    logger.debug(
+        "Final output generation completed in {:.2f}s - {} rows × {} columns", elapsed_time, len(result), len(result.columns)
+    )
+
+    # Log summary statistics
+    if "combined_priority_score" in result.columns:
+        avg_priority = result["combined_priority_score"].mean()
+        logger.debug("Average combined priority score: {:.3f}", avg_priority)
+
+    if "recommendation" in result.columns:
+        rec_counts = result["recommendation"].value_counts()
+        logger.debug("Recommendation distribution: {}", rec_counts.to_dict())
+
+    result = result.sort_values(["combined_priority", "dim_value"], ascending=[False, True])
+    return result

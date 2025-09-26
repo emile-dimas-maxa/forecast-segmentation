@@ -1,12 +1,22 @@
 """Monthly aggregation transformations."""
 
-import pandas as pd
+import time
+
 import numpy as np
+import pandas as pd
+from loguru import logger
+
 from src.config.segmentation import SegmentationConfig
 
 
 def create_monthly_aggregates(df: pd.DataFrame, config: SegmentationConfig = None) -> pd.DataFrame:
     """Create monthly aggregations with EOM and non-EOM breakdowns."""
+    start_time = time.time()
+    initial_rows = len(df)
+
+    logger.debug("Starting monthly aggregation")
+    logger.debug("Input shape: {} rows × {} columns", initial_rows, len(df.columns))
+
     if config is None:
         config = SegmentationConfig()
 
@@ -107,5 +117,9 @@ def create_monthly_aggregates(df: pd.DataFrame, config: SegmentationConfig = Non
     result["is_year_end"] = (result["month_num"] == 12).astype(int)
     result["has_nonzero_eom"] = (result["eom_amount"] > 0).astype(int)
     result["day_dispersion"] = result["day_dispersion"].fillna(0)
+
+    elapsed_time = time.time() - start_time
+    logger.debug("Monthly aggregation completed in {:.2f}s - {} rows × {} columns", elapsed_time, len(result), len(result.columns))
+    logger.debug("Unique entities after aggregation: {}", result["dim_value"].nunique())
 
     return result
