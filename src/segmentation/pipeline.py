@@ -601,10 +601,14 @@ class SegmentationPipeline:
                 "cumulative_eom_portfolio_pct",
             ],
             [
-                F.sum("rolling_total_volume_12m").over(window_cumulative_overall)
-                / F.nullif(F.col("total_portfolio_volume"), F.lit(0)),
-                F.sum("rolling_eom_volume_12m").over(window_cumulative_eom)
-                / F.nullif(F.col("total_portfolio_eom_volume"), F.lit(0)),
+                F.when(
+                    F.col("total_portfolio_volume") != 0,
+                    F.sum("rolling_total_volume_12m").over(window_cumulative_overall) / F.col("total_portfolio_volume"),
+                ).otherwise(0),
+                F.when(
+                    F.col("total_portfolio_eom_volume") != 0,
+                    F.sum("rolling_eom_volume_12m").over(window_cumulative_eom) / F.col("total_portfolio_eom_volume"),
+                ).otherwise(0),
             ],
         )
 
@@ -643,7 +647,7 @@ class SegmentationPipeline:
             "eom_predictability",
             F.when(
                 F.col("rolling_avg_nonzero_eom") > 0,
-                F.greatest(F.lit(0), 1 - (F.col("rolling_std_eom") / F.col("rolling_avg_nonzero_eom"))),
+                F.expr("GREATEST(0, 1 - (rolling_std_eom / rolling_avg_nonzero_eom))"),
             ).otherwise(0),
         )
 
@@ -652,7 +656,7 @@ class SegmentationPipeline:
             "eom_frequency",
             F.when(
                 F.col("months_of_history") > 1,
-                F.coalesce(F.col("rolling_nonzero_eom_months") / F.least(F.col("months_of_history") - 1, F.lit(12)), F.lit(0)),
+                F.coalesce(F.expr("rolling_nonzero_eom_months / LEAST(months_of_history - 1, 12)"), F.lit(0)),
             ).otherwise(0),
         )
 
@@ -661,7 +665,7 @@ class SegmentationPipeline:
             "eom_zero_ratio",
             F.when(
                 F.col("months_of_history") > 1,
-                F.coalesce(F.col("rolling_zero_eom_months") / F.least(F.col("months_of_history") - 1, F.lit(12)), F.lit(0)),
+                F.coalesce(F.expr("rolling_zero_eom_months / LEAST(months_of_history - 1, 12)"), F.lit(0)),
             ).otherwise(0),
         )
 
@@ -681,7 +685,7 @@ class SegmentationPipeline:
             "eom_cv",
             F.when(
                 F.col("rolling_avg_nonzero_eom") > 0,
-                F.col("rolling_std_eom") / F.nullif(F.col("rolling_avg_nonzero_eom"), F.lit(0)),
+                F.col("rolling_std_eom") / F.col("rolling_avg_nonzero_eom"),
             ).otherwise(0),
         )
 
@@ -698,16 +702,14 @@ class SegmentationPipeline:
             "transaction_regularity",
             F.when(
                 F.col("rolling_avg_transactions") > 0,
-                F.greatest(F.lit(0), 1 - (F.col("rolling_std_transactions") / F.col("rolling_avg_transactions"))),
+                F.expr("GREATEST(0, 1 - (rolling_std_transactions / rolling_avg_transactions))"),
             ).otherwise(0),
         )
 
         # Activity rate
         df = df.with_column(
             "activity_rate",
-            F.when(
-                F.col("months_of_history") > 0, F.col("active_months_12m") / F.least(F.col("months_of_history"), F.lit(12))
-            ).otherwise(0),
+            F.when(F.col("months_of_history") > 0, F.expr("active_months_12m / LEAST(months_of_history, 12)")).otherwise(0),
         )
 
         # Quarter end concentration
@@ -861,10 +863,12 @@ class SegmentationPipeline:
         logger.debug("Calculating smooth EOM pattern scores")
 
         # Regularity score: Sigmoid function for smooth transition
-        df = df.with_column("regularity_score", 100 * (1 / (1 + F.exp(-config.sigmoid_steepness * (F.col("eom_frequency") - 0.5)))))
+        df = df.with_column(
+            "regularity_score", F.expr(f"100 * (1 / (1 + EXP(-{config.sigmoid_steepness} * (eom_frequency - 0.5))))")
+        )
 
         # Stability score: Inverse exponential decay based on CV
-        df = df.with_column("stability_score", 100 * F.exp(-config.stability_decay_rate * F.greatest(F.col("eom_cv"), F.lit(0))))
+        df = df.with_column("stability_score", F.expr(f"100 * EXP(-{config.stability_decay_rate} * GREATEST(eom_cv, 0))"))
 
         # Recency score: Exponential time decay
         df = df.with_column(
@@ -874,15 +878,12 @@ class SegmentationPipeline:
             .when(F.col("months_since_last_eom") == 1, 80)
             .when(F.col("months_since_last_eom") == 2, 64)
             .when(F.col("months_since_last_eom") == 3, 51)
-            .otherwise(
-                100
-                * F.pow(F.lit(config.recency_decay_rate), F.greatest(F.lit(4), F.least(F.lit(24), F.col("months_since_last_eom"))))
-            ),
+            .otherwise(F.expr(f"100 * POWER({config.recency_decay_rate}, GREATEST(4, LEAST(24, months_since_last_eom)))")),
         )
 
         # Concentration score: Logistic curve
         df = df.with_column(
-            "concentration_score", 100 * (1 / (1 + F.exp(-config.concentration_steepness * (F.col("eom_concentration") - 0.5))))
+            "concentration_score", F.expr(f"100 * (1 / (1 + EXP(-{config.concentration_steepness} * (eom_concentration - 0.5))))")
         )
 
         # Volume importance score: Asymptotic growth
@@ -890,7 +891,7 @@ class SegmentationPipeline:
             "volume_importance_score",
             F.when(
                 F.col("total_portfolio_eom_volume") > 0,
-                100 * (1 - F.exp(-config.volume_growth_rate * F.col("eom_importance_score"))),
+                F.expr(f"100 * (1 - EXP(-{config.volume_growth_rate} * eom_importance_score))"),
             ).otherwise(0),
         )
 
@@ -1156,20 +1157,16 @@ class SegmentationPipeline:
         # Classification entropy (uncertainty)
         df = df.with_column(
             "classification_entropy",
-            -(
-                F.coalesce(F.col("prob_continuous_stable") * F.log(F.nullif(F.col("prob_continuous_stable"), F.lit(0))), F.lit(0))
-                + F.coalesce(
-                    F.col("prob_continuous_volatile") * F.log(F.nullif(F.col("prob_continuous_volatile"), F.lit(0))), F.lit(0)
+            F.expr("""
+                -(
+                    CASE WHEN prob_continuous_stable > 0 THEN prob_continuous_stable * LN(prob_continuous_stable) ELSE 0 END +
+                    CASE WHEN prob_continuous_volatile > 0 THEN prob_continuous_volatile * LN(prob_continuous_volatile) ELSE 0 END +
+                    CASE WHEN prob_intermittent_active > 0 THEN prob_intermittent_active * LN(prob_intermittent_active) ELSE 0 END +
+                    CASE WHEN prob_intermittent_dormant > 0 THEN prob_intermittent_dormant * LN(prob_intermittent_dormant) ELSE 0 END +
+                    CASE WHEN prob_rare_recent > 0 THEN prob_rare_recent * LN(prob_rare_recent) ELSE 0 END +
+                    CASE WHEN prob_rare_stale > 0 THEN prob_rare_stale * LN(prob_rare_stale) ELSE 0 END
                 )
-                + F.coalesce(
-                    F.col("prob_intermittent_active") * F.log(F.nullif(F.col("prob_intermittent_active"), F.lit(0))), F.lit(0)
-                )
-                + F.coalesce(
-                    F.col("prob_intermittent_dormant") * F.log(F.nullif(F.col("prob_intermittent_dormant"), F.lit(0))), F.lit(0)
-                )
-                + F.coalesce(F.col("prob_rare_recent") * F.log(F.nullif(F.col("prob_rare_recent"), F.lit(0))), F.lit(0))
-                + F.coalesce(F.col("prob_rare_stale") * F.log(F.nullif(F.col("prob_rare_stale"), F.lit(0))), F.lit(0))
-            ),
+            """),
         )
 
         # High risk flag
