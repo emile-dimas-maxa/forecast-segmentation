@@ -209,10 +209,12 @@ class SegmentationPipeline:
         df = df.with_columns(
             [
                 "is_clipped",
-                F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 1).otherwise(0),
                 "clipped_amount",
+            ],
+            [
+                F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 1).otherwise(0),
                 F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), F.col("amount")).otherwise(0),
-            ]
+            ],
         )
 
         # Apply clipping
@@ -470,65 +472,56 @@ class SegmentationPipeline:
         df = df.with_columns(
             [
                 "rolling_total_volume_12m",
-                F.sum("monthly_total").over(window_12m),
                 "rolling_avg_monthly_volume",
-                F.avg("monthly_total").over(window_12m),
                 "rolling_max_transaction",
-                F.max("max_monthly_transaction").over(window_12m),
-                # EOM-specific metrics
                 "rolling_eom_volume_12m",
-                F.sum("eom_amount").over(window_12m),
                 "rolling_avg_nonzero_eom",
-                F.avg(F.when(F.col("eom_amount") > 0, F.col("eom_amount"))).over(window_12m),
                 "rolling_max_eom",
-                F.max("eom_amount").over(window_12m),
                 "rolling_std_eom",
-                F.stddev_pop("eom_amount").over(window_12m),
-                # Non-EOM metrics
                 "rolling_non_eom_volume_12m",
-                F.sum("non_eom_total").over(window_12m),
                 "rolling_avg_non_eom",
-                F.avg("non_eom_total").over(window_12m),
-                # Frequency counts
                 "rolling_nonzero_eom_months",
-                F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_12m),
                 "rolling_zero_eom_months",
-                F.sum(F.when(F.col("eom_amount") == 0, 1).otherwise(0)).over(window_12m),
                 "active_months_12m",
-                F.sum(F.when(F.col("monthly_total") > 0, 1).otherwise(0)).over(window_12m),
-                # Volatility metrics
                 "rolling_std_monthly",
-                F.stddev_pop("monthly_total").over(window_12m),
-                # Seasonality metrics
                 "rolling_quarter_end_volume",
-                F.sum("quarter_end_amount").over(window_12m),
                 "rolling_year_end_volume",
-                F.sum("year_end_amount").over(window_12m),
-                # Transaction regularity
                 "rolling_avg_transactions",
-                F.avg("monthly_transactions").over(window_12m),
                 "rolling_std_transactions",
-                F.stddev_pop("monthly_transactions").over(window_12m),
-                # Day dispersion
                 "rolling_avg_day_dispersion",
-                F.avg("day_dispersion").over(window_12m),
-                # Total counts (expanding window)
                 "total_nonzero_eom_count",
-                F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_unbounded),
-                # Lagged values
                 "eom_amount_12m_ago",
-                F.lag("eom_amount", 12).over(Window.partition_by("dim_value").order_by("month")),
                 "eom_amount_3m_ago",
-                F.lag("eom_amount", 3).over(Window.partition_by("dim_value").order_by("month")),
                 "eom_amount_1m_ago",
-                F.lag("eom_amount", 1).over(Window.partition_by("dim_value").order_by("month")),
-                # Moving averages
                 "eom_ma3",
-                F.avg("eom_amount").over(window_3m),
-                # Months of history
                 "months_of_history",
+            ],
+            [
+                F.sum("monthly_total").over(window_12m),
+                F.avg("monthly_total").over(window_12m),
+                F.max("max_monthly_transaction").over(window_12m),
+                F.sum("eom_amount").over(window_12m),
+                F.avg(F.when(F.col("eom_amount") > 0, F.col("eom_amount"))).over(window_12m),
+                F.max("eom_amount").over(window_12m),
+                F.stddev_pop("eom_amount").over(window_12m),
+                F.sum("non_eom_total").over(window_12m),
+                F.avg("non_eom_total").over(window_12m),
+                F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_12m),
+                F.sum(F.when(F.col("eom_amount") == 0, 1).otherwise(0)).over(window_12m),
+                F.sum(F.when(F.col("monthly_total") > 0, 1).otherwise(0)).over(window_12m),
+                F.stddev_pop("monthly_total").over(window_12m),
+                F.sum("quarter_end_amount").over(window_12m),
+                F.sum("year_end_amount").over(window_12m),
+                F.avg("monthly_transactions").over(window_12m),
+                F.stddev_pop("monthly_transactions").over(window_12m),
+                F.avg("day_dispersion").over(window_12m),
+                F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_unbounded),
+                F.lag("eom_amount", 12).over(Window.partition_by("dim_value").order_by("month")),
+                F.lag("eom_amount", 3).over(Window.partition_by("dim_value").order_by("month")),
+                F.lag("eom_amount", 1).over(Window.partition_by("dim_value").order_by("month")),
+                F.avg("eom_amount").over(window_3m),
                 F.row_number().over(Window.partition_by("dim_value").order_by("month")),
-            ]
+            ],
         )
 
         # Calculate months since last EOM
@@ -582,10 +575,12 @@ class SegmentationPipeline:
         df = df.with_columns(
             [
                 "total_portfolio_volume",
-                F.sum("rolling_total_volume_12m").over(window_portfolio),
                 "total_portfolio_eom_volume",
+            ],
+            [
+                F.sum("rolling_total_volume_12m").over(window_portfolio),
                 F.sum("rolling_eom_volume_12m").over(window_portfolio),
-            ]
+            ],
         )
 
         # Calculate cumulative portfolio percentages
@@ -603,22 +598,26 @@ class SegmentationPipeline:
         df = df.with_columns(
             [
                 "cumulative_overall_portfolio_pct",
+                "cumulative_eom_portfolio_pct",
+            ],
+            [
                 F.sum("rolling_total_volume_12m").over(window_cumulative_overall)
                 / F.nullif(F.col("total_portfolio_volume"), F.lit(0)),
-                "cumulative_eom_portfolio_pct",
                 F.sum("rolling_eom_volume_12m").over(window_cumulative_eom)
                 / F.nullif(F.col("total_portfolio_eom_volume"), F.lit(0)),
-            ]
+            ],
         )
 
         # Handle nulls
         df = df.with_columns(
             [
                 "cumulative_overall_portfolio_pct",
-                F.coalesce(F.col("cumulative_overall_portfolio_pct"), F.lit(0)),
                 "cumulative_eom_portfolio_pct",
+            ],
+            [
+                F.coalesce(F.col("cumulative_overall_portfolio_pct"), F.lit(0)),
                 F.coalesce(F.col("cumulative_eom_portfolio_pct"), F.lit(0)),
-            ]
+            ],
         )
 
         return df
