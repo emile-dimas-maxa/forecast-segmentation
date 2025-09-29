@@ -91,7 +91,53 @@ python -m src.cli segmentation run \
 
 ### Forecasting Pipeline
 
-Run the forecasting pipeline with backtesting:
+#### Run All Methods (Comprehensive Evaluation)
+
+Run ALL available forecasting methods and evaluate at all levels:
+
+```bash
+# Run all methods with comprehensive evaluation
+radio-forecast forecast run-all \
+  --segmented-table segmented_results \
+  --train-start 2023-01-01 \
+  --train-end 2023-12-31 \
+  --test-start 2024-01-01 \
+  --test-end 2024-03-31 \
+  --account YOUR_SNOWFLAKE_ACCOUNT \
+  --user YOUR_USERNAME \
+  --password YOUR_PASSWORD \
+  --warehouse YOUR_WAREHOUSE \
+  --database YOUR_DATABASE \
+  --schema YOUR_SCHEMA \
+  --detailed \
+  --verbose
+
+# Run all methods with summary output only
+radio-forecast forecast run-all \
+  --segmented-table segmented_results \
+  --train-start 2023-01-01 \
+  --train-end 2023-12-31 \
+  --test-start 2024-01-01 \
+  --test-end 2024-03-31 \
+  --account YOUR_SNOWFLAKE_ACCOUNT \
+  --user YOUR_USERNAME \
+  --password YOUR_PASSWORD \
+  --warehouse YOUR_WAREHOUSE \
+  --database YOUR_DATABASE \
+  --schema YOUR_SCHEMA \
+  --summary
+```
+
+This command will:
+- Test ALL 12 forecasting methods
+- Evaluate at 3 levels: dim_value, segment (credit/debit/net), overall
+- Show comprehensive performance comparison
+- Rank methods by multiple metrics (MAE, RMSE, MAPE, Directional Accuracy)
+- Provide recommendations for best methods
+
+#### Run Specific Methods
+
+Run the forecasting pipeline with specific methods:
 
 ```bash
 # Basic usage
@@ -160,6 +206,43 @@ python -m src.cli forecast run \
 - `--save-forecasts/--no-save-forecasts`: Save individual forecasts (default: True)
 - `--save-errors/--no-save-errors`: Save error metrics (default: True)
 - `--verbose`: Enable verbose logging
+
+#### Compare Methods
+
+Compare forecasting methods from saved results:
+
+```bash
+# Compare methods from results table
+radio-forecast forecast compare \
+  --results-table forecast_backtest_all_errors \
+  --account YOUR_SNOWFLAKE_ACCOUNT \
+  --user YOUR_USERNAME \
+  --password YOUR_PASSWORD \
+  --warehouse YOUR_WAREHOUSE \
+  --database YOUR_DATABASE \
+  --schema YOUR_SCHEMA
+
+# Compare with specific metric and show top 5
+radio-forecast forecast compare \
+  --results-table forecast_backtest_all_errors \
+  --metric rmse \
+  --top-n 5 \
+  --by-level \
+  --account YOUR_SNOWFLAKE_ACCOUNT \
+  --user YOUR_USERNAME \
+  --password YOUR_PASSWORD
+```
+
+#### Evaluation Levels Explained
+
+The forecasting evaluation happens at three levels:
+
+1. **dim_value level**: Individual counterparty_direction pairs (e.g., "company_a::IN", "company_b::OUT")
+2. **segment level**: Aggregated by credit/debit/net:
+   - **Credit**: All dim_values ending with "::IN" 
+   - **Debit**: All dim_values ending with "::OUT"
+   - **Net**: Credit - Debit
+3. **overall level**: Total across all segments and dim_values
 
 ## Environment Variables
 
