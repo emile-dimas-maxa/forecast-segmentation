@@ -55,7 +55,7 @@ def run_segmentation(
     start_date: str = typer.Option("2022-01-01", "--start-date", help="Analysis start date (YYYY-MM-DD)"),
     end_date: str | None = typer.Option(None, "--end-date", help="Analysis end date (YYYY-MM-DD), defaults to current date"),
     source_table: str = typer.Option(
-        "int__t__cad_core_banking_regular_time_series_recorded", "--source-table", help="Source table name"
+        "maxa_dev.data_private.int__t__cad_core_banking_regular_time_series_recorded", "--source-table", help="Source table name"
     ),
     min_months_history: int = typer.Option(3, "--min-months", help="Minimum months of history required"),
     rolling_window_months: int = typer.Option(12, "--rolling-window", help="Rolling window for feature calculation"),
@@ -65,14 +65,6 @@ def run_segmentation(
         None, "--output-table", help="Output table name (if not specified, uses default naming)"
     ),
     save_to_file: Path | None = typer.Option(None, "--save-to-file", help="Save results to local file (CSV)"),
-    # Snowflake connection parameters
-    # account: str | None = typer.Option(None, "--account", help="Snowflake account"),
-    # user: str | None = typer.Option(None, "--user", help="Snowflake user"),
-    # password: str | None = typer.Option(None, "--password", help="Snowflake password"),
-    # warehouse: str | None = typer.Option(None, "--warehouse", help="Snowflake warehouse"),
-    # database: str | None = typer.Option(None, "--database", help="Snowflake database"),
-    # schema: str | None = typer.Option(None, "--schema", help="Snowflake schema"),
-    # role: str | None = typer.Option(None, "--role", help="Snowflake role"),
     # Processing options
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ):
@@ -184,14 +176,6 @@ def run_all_forecasting_methods(
     save_forecasts: bool = typer.Option(True, "--save-forecasts/--no-save-forecasts", help="Save individual forecasts"),
     save_errors: bool = typer.Option(True, "--save-errors/--no-save-errors", help="Save error metrics"),
     show_detailed_results: bool = typer.Option(True, "--detailed/--summary", help="Show detailed results breakdown"),
-    # Snowflake connection parameters
-    # account: str | None = typer.Option(None, "--account", help="Snowflake account"),
-    # user: str | None = typer.Option(None, "--user", help="Snowflake user"),
-    # password: str | None = typer.Option(None, "--password", help="Snowflake password"),
-    # warehouse: str | None = typer.Option(None, "--warehouse", help="Snowflake warehouse"),
-    # database: str | None = typer.Option(None, "--database", help="Snowflake database"),
-    # schema: str | None = typer.Option(None, "--schema", help="Snowflake schema"),
-    # role: str | None = typer.Option(None, "--role", help="Snowflake role"),
     # Processing options
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ):
@@ -348,14 +332,6 @@ def run_forecasting(
     output_prefix: str = typer.Option("forecast_backtest", "--output-prefix", help="Prefix for output tables"),
     save_forecasts: bool = typer.Option(True, "--save-forecasts/--no-save-forecasts", help="Save individual forecasts"),
     save_errors: bool = typer.Option(True, "--save-errors/--no-save-errors", help="Save error metrics"),
-    # Snowflake connection parameters
-    account: str | None = typer.Option(None, "--account", help="Snowflake account"),
-    user: str | None = typer.Option(None, "--user", help="Snowflake user"),
-    password: str | None = typer.Option(None, "--password", help="Snowflake password"),
-    warehouse: str | None = typer.Option(None, "--warehouse", help="Snowflake warehouse"),
-    database: str | None = typer.Option(None, "--database", help="Snowflake database"),
-    schema: str | None = typer.Option(None, "--schema", help="Snowflake schema"),
-    role: str | None = typer.Option(None, "--role", help="Snowflake role"),
     # Processing options
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ):
@@ -421,7 +397,7 @@ def run_forecasting(
     console.print(table)
 
     # Get Snowflake session
-    session = get_snowflake_session(account, user, password, warehouse, database, schema, role)
+    session = get_snowflake_session()
 
     try:
         # Load segmented data
@@ -680,7 +656,7 @@ def auto_forecast_compare(
         output_prefix = f"auto_forecast_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     # Build command for the automated script
-    script_path = Path(__file__).parent.parent / "scripts" / "auto_forecast_compare.py"
+    script_path = Path(__file__).parent / "scripts" / "auto_forecast_compare.py"
 
     cmd_parts = [
         "python",
@@ -730,14 +706,6 @@ def compare_methods(
     metric: str = typer.Option("mae", "--metric", help="Metric to use for comparison (mae, rmse, mape, directional_accuracy)"),
     top_n: int = typer.Option(10, "--top-n", help="Show top N methods"),
     by_level: bool = typer.Option(True, "--by-level/--overall", help="Show breakdown by evaluation level"),
-    # # Snowflake connection parameters
-    # account: str | None = typer.Option(None, "--account", help="Snowflake account"),
-    # user: str | None = typer.Option(None, "--user", help="Snowflake user"),
-    # password: str | None = typer.Option(None, "--password", help="Snowflake password"),
-    # warehouse: str | None = typer.Option(None, "--warehouse", help="Snowflake warehouse"),
-    # database: str | None = typer.Option(None, "--database", help="Snowflake database"),
-    # schema: str | None = typer.Option(None, "--schema", help="Snowflake schema"),
-    # role: str | None = typer.Option(None, "--role", help="Snowflake role"),
 ):
     """Compare forecasting methods from saved results"""
 

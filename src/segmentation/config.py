@@ -116,7 +116,8 @@ class SegmentationConfig(BaseModel):
 
     # Data source
     source_table: str = Field(
-        default="int__t__cad_core_banking_regular_time_series_recorded", description="Source table for time series data"
+        default="maxa_dev.data_private.int__t__cad_core_banking_regular_time_series_recorded",
+        description="Source table for time series data",
     )
 
     class Config:

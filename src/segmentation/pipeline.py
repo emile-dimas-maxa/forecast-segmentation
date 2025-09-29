@@ -166,18 +166,20 @@ class SegmentationPipeline:
         df = df.with_columns(
             [
                 "month",
-                F.date_trunc("month", F.col("date")),
                 "quarter",
-                F.date_trunc("quarter", F.col("date")),
                 "year",
-                F.year(F.col("date")),
                 "month_num",
-                F.month(F.col("date")),
                 "quarter_num",
-                F.quarter(F.col("date")),
                 "day_of_month",
+            ],
+            [
+                F.date_trunc("month", F.col("date")),
+                F.date_trunc("quarter", F.col("date")),
+                F.year(F.col("date")),
+                F.month(F.col("date")),
+                F.quarter(F.col("date")),
                 F.dayofmonth(F.col("date")),
-            ]
+            ],
         )
 
         # Calculate business days from EOM

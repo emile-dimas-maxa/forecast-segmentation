@@ -22,16 +22,16 @@ The CLI provides several commands for different operations:
 
 ```bash
 # Show help
-python -m src.cli --help
+python cli.py --help
 
 # Show version
-python -m src.cli --version
+python cli.py --version
 
 # Show configuration templates
-python -m src.cli config
+python cli.py config
 
 # List available forecasting methods
-python -m src.cli methods
+python cli.py methods
 ```
 
 ### Segmentation Pipeline
@@ -40,7 +40,7 @@ Run the segmentation pipeline to analyze and segment time series data:
 
 ```bash
 # Basic usage with command line parameters
-python -m src.cli segmentation run \
+python cli.py segmentation run \
   --account YOUR_SNOWFLAKE_ACCOUNT \
   --user YOUR_USERNAME \
   --password YOUR_PASSWORD \
@@ -54,7 +54,7 @@ python -m src.cli segmentation run \
   --output-table segmented_results
 
 # Using a configuration file
-python -m src.cli segmentation run \
+python cli.py segmentation run \
   --config example_configs/segmentation_config.json \
   --account YOUR_SNOWFLAKE_ACCOUNT \
   --user YOUR_USERNAME \
@@ -65,7 +65,7 @@ python -m src.cli segmentation run \
   --output-table segmented_results
 
 # Save results to local CSV file
-python -m src.cli segmentation run \
+python cli.py segmentation run \
   --config example_configs/segmentation_config.json \
   --account YOUR_SNOWFLAKE_ACCOUNT \
   --user YOUR_USERNAME \
@@ -141,7 +141,7 @@ Run the forecasting pipeline with specific methods:
 
 ```bash
 # Basic usage
-python -m src.cli forecast run \
+python cli.py forecast run \
   --segmented-table segmented_results \
   --train-start 2023-01-01 \
   --train-end 2023-12-31 \
@@ -158,7 +158,7 @@ python -m src.cli forecast run \
   --schema YOUR_SCHEMA
 
 # Using a configuration file
-python -m src.cli forecast run \
+python cli.py forecast run \
   --config example_configs/forecasting_config.json \
   --segmented-table segmented_results \
   --account YOUR_SNOWFLAKE_ACCOUNT \
@@ -169,7 +169,7 @@ python -m src.cli forecast run \
   --schema YOUR_SCHEMA
 
 # Advanced usage with custom parameters
-python -m src.cli forecast run \
+python cli.py forecast run \
   --segmented-table segmented_results \
   --train-start 2023-01-01 \
   --train-end 2023-12-31 \
@@ -316,7 +316,7 @@ Create a JSON file with forecasting parameters:
 
 1. **Run Segmentation**:
 ```bash
-python -m src.cli segmentation run \
+python cli.py segmentation run \
   --config example_configs/segmentation_config.json \
   --account YOUR_ACCOUNT \
   --user YOUR_USER \
@@ -330,7 +330,7 @@ python -m src.cli segmentation run \
 
 2. **Run Forecasting**:
 ```bash
-python -m src.cli forecast run \
+python cli.py forecast run \
   --config example_configs/forecasting_config.json \
   --segmented-table my_segmented_data \
   --account YOUR_ACCOUNT \
@@ -372,7 +372,7 @@ The CLI includes comprehensive error handling:
 Use the `--verbose` flag to enable detailed logging:
 
 ```bash
-python -m src.cli segmentation run --verbose [other options]
+python cli.py segmentation run --verbose [other options]
 ```
 
 This will show:

@@ -23,7 +23,7 @@ ruff = ">=0.13.1,<0.14.0"
 pytest = ">=8.4.2,<9.0.0"
 
 [tool.poetry.scripts]
-radio-forecast = "src.cli:app"
+radio-forecast = "cli:app"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
