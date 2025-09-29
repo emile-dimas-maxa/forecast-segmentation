@@ -191,42 +191,42 @@ class SegmentationPipeline:
 
         return df
 
-    @staticmethod
-    @log_transformation
-    def apply_daily_clipping(config: SegmentationConfig, df: DataFrame) -> DataFrame:
-        """
-        Step 1.5: Apply clipping to daily amounts below threshold
-        Clips small daily amounts to zero to reduce noise
-        Provides detailed analysis of clipping impact
-        """
-        threshold = config.daily_amount_clip_threshold
-        logger.info(f"Applying daily clipping with threshold: {threshold:,.2f}")
+    # @staticmethod
+    # @log_transformation
+    # def apply_daily_clipping(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+    #     """
+    #     Step 1.5: Apply clipping to daily amounts below threshold
+    #     Clips small daily amounts to zero to reduce noise
+    #     Provides detailed analysis of clipping impact
+    #     """
+    #     threshold = config.daily_amount_clip_threshold
+    #     logger.info(f"Applying daily clipping with threshold: {threshold:,.2f}")
 
-        # Store original amount for analysis
-        df = df.with_column("original_amount", F.col("amount"))
+    #     # Store original amount for analysis
+    #     df = df.with_column("original_amount", F.col("amount"))
 
-        # Create clipping indicators
-        df = df.with_columns(
-            [
-                "is_clipped",
-                "clipped_amount",
-            ],
-            [
-                F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 1).otherwise(0),
-                F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), F.col("amount")).otherwise(0),
-            ],
-        )
+    #     # Create clipping indicators
+    #     df = df.with_columns(
+    #         [
+    #             "is_clipped",
+    #             "clipped_amount",
+    #         ],
+    #         [
+    #             F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 1).otherwise(0),
+    #             F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), F.col("amount")).otherwise(0),
+    #         ],
+    #     )
 
-        # Apply clipping
-        df = df.with_column(
-            "amount", F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 0).otherwise(F.col("amount"))
-        )
+    #     # Apply clipping
+    #     df = df.with_column(
+    #         "amount", F.when((F.abs(F.col("amount")) > 0) & (F.abs(F.col("amount")) < threshold), 0).otherwise(F.col("amount"))
+    #     )
 
-        # Perform clipping analysis if enabled
-        if config.clip_analysis_enabled:
-            SegmentationPipeline._analyze_clipping_impact(config, df)
+    #     # Perform clipping analysis if enabled
+    #     if config.clip_analysis_enabled:
+    #         SegmentationPipeline._analyze_clipping_impact(config, df)
 
-        return df
+    #     return df
 
     @staticmethod
     @log_transformation
@@ -402,6 +402,19 @@ class SegmentationPipeline:
                         f"Dim Values: {int(row['affected_dim_values'])}"
                     )
 
+                # Calculate sum by month and 12-month rolling average
+                monthly_sums = recent_eom_months["total_clipped_eom_amount"]
+                twelve_month_avg_sum = monthly_sums.mean()
+
+                logger.info("\n" + "=" * 60)
+                logger.info("MONTHLY SUMS AND ROLLING AVERAGE")
+                logger.info("=" * 60)
+                logger.info(f"Monthly Clipped EOM Amounts:")
+                for _, row in recent_eom_months.iterrows():
+                    logger.info(f"  {row['month'].strftime('%Y-%m')}: {row['total_clipped_eom_amount']:,.2f}")
+
+                logger.info(f"\n12-Month Rolling Average of Monthly Sums: {twelve_month_avg_sum:,.2f}")
+
                 # Overall monthly statistics - simplified approach
                 total_amount_stats = recent_eom_months["total_clipped_eom_amount"].agg(["sum", "mean", "min", "max"])
                 avg_amount_stats = recent_eom_months["avg_clipped_eom_amount"].agg(["mean", "min", "max"])
@@ -410,7 +423,7 @@ class SegmentationPipeline:
                 logger.info("\n" + "=" * 60)
                 logger.info("MONTHLY EOM CLIPPING STATISTICS SUMMARY")
                 logger.info("=" * 60)
-                logger.info(f"Total Amount Clipped Across Months:")
+                logger.info(f"Total Amount Clipped Across All Months:")
                 logger.info(f"  Sum: {total_amount_stats['sum']:,.2f}")
                 logger.info(f"  Monthly Avg: {total_amount_stats['mean']:,.2f}")
                 logger.info(f"  Monthly Min: {total_amount_stats['min']:,.2f}")
@@ -426,6 +439,21 @@ class SegmentationPipeline:
                 logger.info(f"  Monthly Avg: {records_stats['mean']:,.1f}")
                 logger.info(f"  Monthly Min: {int(records_stats['min']):,}")
                 logger.info(f"  Monthly Max: {int(records_stats['max']):,}")
+
+                # Additional insights
+                logger.info(f"\nTrend Analysis:")
+                if len(recent_eom_months) >= 2:
+                    latest_month_sum = recent_eom_months.iloc[0]["total_clipped_eom_amount"]
+                    previous_month_sum = recent_eom_months.iloc[1]["total_clipped_eom_amount"]
+                    month_over_month_change = (
+                        ((latest_month_sum - previous_month_sum) / previous_month_sum * 100) if previous_month_sum > 0 else 0
+                    )
+                    logger.info(f"  Month-over-Month Change: {month_over_month_change:+.1f}%")
+
+                    if latest_month_sum > twelve_month_avg_sum * 1.2:
+                        logger.warning(f"  ⚠️ Latest month ({latest_month_sum:,.2f}) is 20%+ above 12-month average")
+                    elif latest_month_sum < twelve_month_avg_sum * 0.8:
+                        logger.info(f"  ✓ Latest month ({latest_month_sum:,.2f}) is below 12-month average")
 
             # Warning for high impact scenarios
             if pct_amount_clipped > 5:
@@ -450,158 +478,158 @@ class SegmentationPipeline:
             logger.warning(f"Could not complete full EOM clipping analysis: {str(e)}")
             logger.info("Continuing with pipeline execution...")
 
-    @staticmethod
-    def _analyze_clipping_impact(config: SegmentationConfig, df: DataFrame) -> None:
-        """
-        Analyze the impact of clipping on the data
-        """
-        logger.info("Performing detailed clipping analysis...")
+    # @staticmethod
+    # def _analyze_clipping_impact(config: SegmentationConfig, df: DataFrame) -> None:
+    #     """
+    #     Analyze the impact of clipping on the data
+    #     """
+    #     logger.info("Performing detailed clipping analysis...")
 
-        try:
-            # Overall clipping statistics
-            overall_stats = df.agg(
-                # Total transactions
-                F.count("*").alias("total_transactions"),
-                F.count(F.when(F.col("original_amount") != 0, 1)).alias("total_nonzero_transactions"),
-                # Clipped transactions
-                F.sum("is_clipped").alias("clipped_transactions"),
-                F.count_distinct(F.when(F.col("is_clipped") == 1, F.col("dim_value"))).alias("affected_dim_values"),
-                # Amount statistics
-                F.sum(F.abs("original_amount")).alias("total_original_amount"),
-                F.sum(F.abs("clipped_amount")).alias("total_clipped_amount"),
-                F.sum(F.abs("amount")).alias("total_after_clipping"),
-                # EOM specific
-                F.sum(F.when(F.col("is_last_work_day_of_month") & (F.col("is_clipped") == 1), 1)).alias("clipped_eom_transactions"),
-                F.sum(F.when(F.col("is_last_work_day_of_month"), F.abs("clipped_amount"))).alias("clipped_eom_amount"),
-            ).collect()[0]
+    #     try:
+    #         # Overall clipping statistics
+    #         overall_stats = df.agg(
+    #             # Total transactions
+    #             F.count("*").alias("total_transactions"),
+    #             F.count(F.when(F.col("original_amount") != 0, 1)).alias("total_nonzero_transactions"),
+    #             # Clipped transactions
+    #             F.sum("is_clipped").alias("clipped_transactions"),
+    #             F.count_distinct(F.when(F.col("is_clipped") == 1, F.col("dim_value"))).alias("affected_dim_values"),
+    #             # Amount statistics
+    #             F.sum(F.abs("original_amount")).alias("total_original_amount"),
+    #             F.sum(F.abs("clipped_amount")).alias("total_clipped_amount"),
+    #             F.sum(F.abs("amount")).alias("total_after_clipping"),
+    #             # EOM specific
+    #             F.sum(F.when(F.col("is_last_work_day_of_month") & (F.col("is_clipped") == 1), 1)).alias("clipped_eom_transactions"),
+    #             F.sum(F.when(F.col("is_last_work_day_of_month"), F.abs("clipped_amount"))).alias("clipped_eom_amount"),
+    #         ).collect()[0]
 
-            # Calculate percentages
-            pct_transactions_clipped = (
-                (overall_stats["clipped_transactions"] / overall_stats["total_nonzero_transactions"] * 100)
-                if overall_stats["total_nonzero_transactions"] > 0
-                else 0
-            )
-            pct_amount_clipped = (
-                (overall_stats["total_clipped_amount"] / overall_stats["total_original_amount"] * 100)
-                if overall_stats["total_original_amount"] > 0
-                else 0
-            )
+    #         # Calculate percentages
+    #         pct_transactions_clipped = (
+    #             (overall_stats["clipped_transactions"] / overall_stats["total_nonzero_transactions"] * 100)
+    #             if overall_stats["total_nonzero_transactions"] > 0
+    #             else 0
+    #         )
+    #         pct_amount_clipped = (
+    #             (overall_stats["total_clipped_amount"] / overall_stats["total_original_amount"] * 100)
+    #             if overall_stats["total_original_amount"] > 0
+    #             else 0
+    #         )
 
-            # Log overall statistics
-            logger.info("=" * 60)
-            logger.info("CLIPPING ANALYSIS SUMMARY")
-            logger.info("=" * 60)
-            logger.info(f"Clipping Threshold: {config.daily_amount_clip_threshold:,.2f}")
-            logger.info(f"Total Transactions: {overall_stats['total_transactions']:,}")
-            logger.info(f"Non-zero Transactions: {overall_stats['total_nonzero_transactions']:,}")
-            logger.info(f"Clipped Transactions: {overall_stats['clipped_transactions']:,} ({pct_transactions_clipped:.2f}%)")
-            logger.info(f"Affected Dim Values: {overall_stats['affected_dim_values']:,}")
-            logger.info(f"Total Original Amount: {overall_stats['total_original_amount']:,.2f}")
-            logger.info(f"Total Clipped Amount: {overall_stats['total_clipped_amount']:,.2f} ({pct_amount_clipped:.2f}%)")
-            logger.info(f"Total After Clipping: {overall_stats['total_after_clipping']:,.2f}")
-            logger.info(f"Clipped EOM Transactions: {overall_stats['clipped_eom_transactions']:,}")
-            logger.info(f"Clipped EOM Amount: {overall_stats['clipped_eom_amount']:,.2f}")
+    #         # Log overall statistics
+    #         logger.info("=" * 60)
+    #         logger.info("CLIPPING ANALYSIS SUMMARY")
+    #         logger.info("=" * 60)
+    #         logger.info(f"Clipping Threshold: {config.daily_amount_clip_threshold:,.2f}")
+    #         logger.info(f"Total Transactions: {overall_stats['total_transactions']:,}")
+    #         logger.info(f"Non-zero Transactions: {overall_stats['total_nonzero_transactions']:,}")
+    #         logger.info(f"Clipped Transactions: {overall_stats['clipped_transactions']:,} ({pct_transactions_clipped:.2f}%)")
+    #         logger.info(f"Affected Dim Values: {overall_stats['affected_dim_values']:,}")
+    #         logger.info(f"Total Original Amount: {overall_stats['total_original_amount']:,.2f}")
+    #         logger.info(f"Total Clipped Amount: {overall_stats['total_clipped_amount']:,.2f} ({pct_amount_clipped:.2f}%)")
+    #         logger.info(f"Total After Clipping: {overall_stats['total_after_clipping']:,.2f}")
+    #         logger.info(f"Clipped EOM Transactions: {overall_stats['clipped_eom_transactions']:,}")
+    #         logger.info(f"Clipped EOM Amount: {overall_stats['clipped_eom_amount']:,.2f}")
 
-            # Analysis by dim_value
-            dim_value_stats = (
-                df.group_by("dim_value")
-                .agg(
-                    F.count("*").alias("total_days"),
-                    F.sum("is_clipped").alias("clipped_days"),
-                    F.sum(F.abs("original_amount")).alias("original_total"),
-                    F.sum(F.abs("clipped_amount")).alias("clipped_total"),
-                    F.avg(F.when(F.col("is_clipped") == 1, F.abs("clipped_amount"))).alias("avg_clipped_amount"),
-                    F.max(F.when(F.col("is_clipped") == 1, F.abs("clipped_amount"))).alias("max_clipped_amount"),
-                    F.sum(F.when(F.col("is_last_work_day_of_month") & (F.col("is_clipped") == 1), 1)).alias("clipped_eom_days"),
-                )
-                .filter(F.col("clipped_days") > 0)
-            )
+    #         # Analysis by dim_value
+    #         dim_value_stats = (
+    #             df.group_by("dim_value")
+    #             .agg(
+    #                 F.count("*").alias("total_days"),
+    #                 F.sum("is_clipped").alias("clipped_days"),
+    #                 F.sum(F.abs("original_amount")).alias("original_total"),
+    #                 F.sum(F.abs("clipped_amount")).alias("clipped_total"),
+    #                 F.avg(F.when(F.col("is_clipped") == 1, F.abs("clipped_amount"))).alias("avg_clipped_amount"),
+    #                 F.max(F.when(F.col("is_clipped") == 1, F.abs("clipped_amount"))).alias("max_clipped_amount"),
+    #                 F.sum(F.when(F.col("is_last_work_day_of_month") & (F.col("is_clipped") == 1), 1)).alias("clipped_eom_days"),
+    #             )
+    #             .filter(F.col("clipped_days") > 0)
+    #         )
 
-            # Get top affected dim_values
-            top_affected = dim_value_stats.order_by(F.col("clipped_total").desc()).limit(20).to_pandas()
+    #         # Get top affected dim_values
+    #         top_affected = dim_value_stats.order_by(F.col("clipped_total").desc()).limit(20).to_pandas()
 
-            if not top_affected.empty:
-                logger.info("\n" + "=" * 60)
-                logger.info("TOP 20 AFFECTED DIM_VALUES BY CLIPPED AMOUNT")
-                logger.info("=" * 60)
-                for _, row in top_affected.iterrows():
-                    pct_clipped = (row["clipped_total"] / row["original_total"] * 100) if row["original_total"] > 0 else 0
-                    logger.info(
-                        f"  {row['dim_value']}: "
-                        f"Clipped {row['clipped_days']:,} days, "
-                        f"Amount: {row['clipped_total']:,.2f} ({pct_clipped:.1f}%), "
-                        f"Avg: {row['avg_clipped_amount']:,.2f}, "
-                        f"Max: {row['max_clipped_amount']:,.2f}, "
-                        f"EOM: {row['clipped_eom_days']}"
-                    )
+    #         if not top_affected.empty:
+    #             logger.info("\n" + "=" * 60)
+    #             logger.info("TOP 20 AFFECTED DIM_VALUES BY CLIPPED AMOUNT")
+    #             logger.info("=" * 60)
+    #             for _, row in top_affected.iterrows():
+    #                 pct_clipped = (row["clipped_total"] / row["original_total"] * 100) if row["original_total"] > 0 else 0
+    #                 logger.info(
+    #                     f"  {row['dim_value']}: "
+    #                     f"Clipped {row['clipped_days']:,} days, "
+    #                     f"Amount: {row['clipped_total']:,.2f} ({pct_clipped:.1f}%), "
+    #                     f"Avg: {row['avg_clipped_amount']:,.2f}, "
+    #                     f"Max: {row['max_clipped_amount']:,.2f}, "
+    #                     f"EOM: {row['clipped_eom_days']}"
+    #                 )
 
-            # Distribution analysis - simplified without percentiles
-            distribution_stats = (
-                df.filter(F.col("is_clipped") == 1)
-                .select(F.abs("clipped_amount").alias("amount"))
-                .agg(
-                    F.min("amount").alias("min_clipped"),
-                    F.max("amount").alias("max_clipped"),
-                    F.avg("amount").alias("mean_clipped"),
-                    F.stddev("amount").alias("std_clipped"),
-                )
-                .collect()[0]
-            )
+    #         # Distribution analysis - simplified without percentiles
+    #         distribution_stats = (
+    #             df.filter(F.col("is_clipped") == 1)
+    #             .select(F.abs("clipped_amount").alias("amount"))
+    #             .agg(
+    #                 F.min("amount").alias("min_clipped"),
+    #                 F.max("amount").alias("max_clipped"),
+    #                 F.avg("amount").alias("mean_clipped"),
+    #                 F.stddev("amount").alias("std_clipped"),
+    #             )
+    #             .collect()[0]
+    #         )
 
-            logger.info("\n" + "=" * 60)
-            logger.info("CLIPPED AMOUNT DISTRIBUTION")
-            logger.info("=" * 60)
-            logger.info(f"Min:    {distribution_stats['min_clipped']:,.2f}")
-            logger.info(f"Max:    {distribution_stats['max_clipped']:,.2f}")
-            logger.info(f"Mean:   {distribution_stats['mean_clipped']:,.2f}")
-            logger.info(f"StdDev: {distribution_stats['std_clipped']:,.2f}")
+    #         logger.info("\n" + "=" * 60)
+    #         logger.info("CLIPPED AMOUNT DISTRIBUTION")
+    #         logger.info("=" * 60)
+    #         logger.info(f"Min:    {distribution_stats['min_clipped']:,.2f}")
+    #         logger.info(f"Max:    {distribution_stats['max_clipped']:,.2f}")
+    #         logger.info(f"Mean:   {distribution_stats['mean_clipped']:,.2f}")
+    #         logger.info(f"StdDev: {distribution_stats['std_clipped']:,.2f}")
 
-            # Time-based analysis
-            time_stats = (
-                df.group_by("month")
-                .agg(
-                    F.sum("is_clipped").alias("clipped_transactions"),
-                    F.sum(F.abs("clipped_amount")).alias("clipped_amount"),
-                    F.count_distinct(F.when(F.col("is_clipped") == 1, F.col("dim_value"))).alias("affected_dim_values"),
-                )
-                .order_by("month")
-            )
+    #         # Time-based analysis
+    #         time_stats = (
+    #             df.group_by("month")
+    #             .agg(
+    #                 F.sum("is_clipped").alias("clipped_transactions"),
+    #                 F.sum(F.abs("clipped_amount")).alias("clipped_amount"),
+    #                 F.count_distinct(F.when(F.col("is_clipped") == 1, F.col("dim_value"))).alias("affected_dim_values"),
+    #             )
+    #             .order_by("month")
+    #         )
 
-            # Get recent months
-            recent_months = time_stats.order_by(F.col("month").desc()).limit(6).to_pandas()
+    #         # Get recent months
+    #         recent_months = time_stats.order_by(F.col("month").desc()).limit(6).to_pandas()
 
-            if not recent_months.empty:
-                logger.info("\n" + "=" * 60)
-                logger.info("RECENT 6 MONTHS CLIPPING SUMMARY")
-                logger.info("=" * 60)
-                for _, row in recent_months.iterrows():
-                    logger.info(
-                        f"  {row['month'].strftime('%Y-%m')}: "
-                        f"Transactions: {row['clipped_transactions']:,}, "
-                        f"Amount: {row['clipped_amount']:,.2f}, "
-                        f"Dim Values: {row['affected_dim_values']}"
-                    )
+    #         if not recent_months.empty:
+    #             logger.info("\n" + "=" * 60)
+    #             logger.info("RECENT 6 MONTHS CLIPPING SUMMARY")
+    #             logger.info("=" * 60)
+    #             for _, row in recent_months.iterrows():
+    #                 logger.info(
+    #                     f"  {row['month'].strftime('%Y-%m')}: "
+    #                     f"Transactions: {row['clipped_transactions']:,}, "
+    #                     f"Amount: {row['clipped_amount']:,.2f}, "
+    #                     f"Dim Values: {row['affected_dim_values']}"
+    #                 )
 
-            # Warning for high impact scenarios
-            if pct_amount_clipped > 5:
-                logger.warning(f"⚠️ High clipping impact: {pct_amount_clipped:.2f}% of total amount clipped")
-            if overall_stats["clipped_eom_transactions"] > 100:
-                logger.warning(f"⚠️ Significant EOM impact: {overall_stats['clipped_eom_transactions']:,} EOM transactions clipped")
+    #         # Warning for high impact scenarios
+    #         if pct_amount_clipped > 5:
+    #             logger.warning(f"⚠️ High clipping impact: {pct_amount_clipped:.2f}% of total amount clipped")
+    #         if overall_stats["clipped_eom_transactions"] > 100:
+    #             logger.warning(f"⚠️ Significant EOM impact: {overall_stats['clipped_eom_transactions']:,} EOM transactions clipped")
 
-            # Save detailed analysis to a table if significant clipping
-            if overall_stats["clipped_transactions"] > 0:
-                analysis_summary = df.select(
-                    "dim_value", "date", "original_amount", "amount", "is_clipped", "clipped_amount", "is_last_work_day_of_month"
-                ).filter(F.col("is_clipped") == 1)
+    #         # Save detailed analysis to a table if significant clipping
+    #         if overall_stats["clipped_transactions"] > 0:
+    #             analysis_summary = df.select(
+    #                 "dim_value", "date", "original_amount", "amount", "is_clipped", "clipped_amount", "is_last_work_day_of_month"
+    #             ).filter(F.col("is_clipped") == 1)
 
-                # Save to a temporary table for further analysis if needed
-                table_name = f"clipping_analysis_{date.today().strftime('%Y%m%d')}"
-                analysis_summary.write.mode("overwrite").save_as_table(table_name)
-                logger.info(f"\nDetailed clipping analysis saved to table: {table_name}")
+    #             # Save to a temporary table for further analysis if needed
+    #             table_name = f"clipping_analysis_{date.today().strftime('%Y%m%d')}"
+    #             analysis_summary.write.mode("overwrite").save_as_table(table_name)
+    #             logger.info(f"\nDetailed clipping analysis saved to table: {table_name}")
 
-        except Exception as e:
-            logger.warning(f"Could not complete full clipping analysis: {str(e)}")
-            logger.info("Continuing with pipeline execution...")
+    #     except Exception as e:
+    #         logger.warning(f"Could not complete full clipping analysis: {str(e)}")
+    #         logger.info("Continuing with pipeline execution...")
 
     @staticmethod
     @log_transformation
