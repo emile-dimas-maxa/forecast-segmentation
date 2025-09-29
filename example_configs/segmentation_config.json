@@ -1,0 +1,16 @@
+{
+    "min_months_history": 3,
+    "rolling_window_months": 12,
+    "min_transactions": 6,
+    "start_date": "2022-01-01",
+    "end_date": null,
+    "ma_window_short": 3,
+    "pre_eom_signal_window": 6,
+    "pre_eom_days": 5,
+    "early_month_days": 10,
+    "mid_month_end_day": 20,
+    "critical_volume_threshold": 100000000000,
+    "high_volume_threshold": 5000000000,
+    "medium_volume_threshold": 1000000000,
+    "source_table": "int__t__cad_core_banking_regular_time_series_recorded"
+}

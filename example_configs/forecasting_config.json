@@ -1,0 +1,37 @@
+{
+    "train_start_date": "2023-01-01",
+    "train_end_date": "2023-12-31",
+    "test_start_date": "2024-01-01",
+    "test_end_date": "2024-03-31",
+    "forecast_horizon": 1,
+    "min_history_months": 12,
+    "methods_to_test": [
+        "naive",
+        "moving_average",
+        "arima"
+    ],
+    "evaluation_levels": [
+        "dim_value",
+        "segment",
+        "overall"
+    ],
+    "ma_windows": [
+        3,
+        6,
+        12
+    ],
+    "ma_min_periods": 2,
+    "wma_window": 6,
+    "arima_auto_select": true,
+    "arima_max_p": 3,
+    "arima_max_d": 2,
+    "arima_max_q": 3,
+    "arima_seasonal": false,
+    "calculate_mae": true,
+    "calculate_rmse": true,
+    "calculate_mape": true,
+    "calculate_smape": true,
+    "save_forecasts": true,
+    "save_errors": true,
+    "output_table_prefix": "forecast_backtest"
+}
