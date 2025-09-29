@@ -464,7 +464,7 @@ class SegmentationPipeline:
         # Define window specifications
         window_12m = Window.partition_by("dim_value").order_by("month").rows_between(-12, -1)
         window_3m = Window.partition_by("dim_value").order_by("month").rows_between(-3, -1)
-        window_unbounded = Window.partition_by("dim_value").order_by("month").rows_between(Window.unbounded_preceding, -1)
+        window_unbounded = Window.partition_by("dim_value").order_by("month").rows_between(Window.UNBOUNDED_PRECEDING, -1)
 
         # Overall volume metrics (12-month rolling)
         df = df.with_columns(
@@ -592,12 +592,12 @@ class SegmentationPipeline:
         window_cumulative_overall = (
             Window.partition_by("month")
             .order_by(F.col("rolling_total_volume_12m").desc())
-            .rows_between(Window.unbounded_preceding, Window.current_row)
+            .rows_between(Window.UNBOUNDED_PRECEDING, Window.CURRENT_ROW)
         )
         window_cumulative_eom = (
             Window.partition_by("month")
             .order_by(F.col("rolling_eom_volume_12m").desc())
-            .rows_between(Window.unbounded_preceding, Window.current_row)
+            .rows_between(Window.UNBOUNDED_PRECEDING, Window.CURRENT_ROW)
         )
 
         df = df.with_columns(
