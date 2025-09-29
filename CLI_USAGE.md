@@ -246,8 +246,9 @@ The forecasting evaluation happens at three levels:
 
 ## Environment Variables
 
-You can set Snowflake connection parameters as environment variables to avoid passing them as command line arguments:
+You can set Snowflake connection parameters as environment variables to avoid passing them as command line arguments.
 
+### Option 1: Export Environment Variables
 ```bash
 export SNOWFLAKE_ACCOUNT=your_account
 export SNOWFLAKE_USER=your_username
@@ -257,6 +258,28 @@ export SNOWFLAKE_DATABASE=your_database
 export SNOWFLAKE_SCHEMA=your_schema
 export SNOWFLAKE_ROLE=your_role
 ```
+
+### Option 2: Use a .env File (Recommended)
+Create a `.env` file in the project root directory:
+
+```env
+# Snowflake Connection Parameters
+SNOWFLAKE_ACCOUNT=your_account_name
+SNOWFLAKE_USER=your_username
+SNOWFLAKE_PASSWORD=your_password
+SNOWFLAKE_WAREHOUSE=your_warehouse
+SNOWFLAKE_DATABASE=your_database
+SNOWFLAKE_SCHEMA=your_schema
+SNOWFLAKE_ROLE=your_role
+
+# Optional: Set default clipping threshold
+DAILY_AMOUNT_CLIP_THRESHOLD=1000.0
+
+# Optional: Enable/disable clipping analysis
+CLIP_ANALYSIS_ENABLED=true
+```
+
+The CLI will automatically load these variables from the `.env` file when it starts. Make sure to add `.env` to your `.gitignore` file to avoid committing sensitive credentials.
 
 ## Configuration Files
 

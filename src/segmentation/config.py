@@ -96,7 +96,7 @@ class SegmentationConfig(BaseModel):
 
     # Clipping thresholds
     daily_amount_clip_threshold: Optional[float] = Field(
-        default=None, description="Threshold below which daily amounts are clipped to 0 (None = no clipping)"
+        default=1_000_000, description="Threshold below which daily amounts are clipped to 0 (None = no clipping)"
     )
     clip_analysis_enabled: bool = Field(default=True, description="Whether to perform detailed analysis of clipped values")
 

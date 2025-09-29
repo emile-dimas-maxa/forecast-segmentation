@@ -101,12 +101,12 @@ class SegmentationPipeline:
 
         df = SegmentationPipeline.prepare_base_data(config, df)
 
-        # Step 1.5: Apply clipping if configured
-        if config.daily_amount_clip_threshold is not None:
-            df = SegmentationPipeline.apply_daily_clipping(config, df)
-
         # Step 2: Monthly aggregations
         df = SegmentationPipeline.create_monthly_aggregates(config, df)
+
+        # Step 2.5: Apply EOM clipping if configured
+        if config.daily_amount_clip_threshold is not None:
+            df = SegmentationPipeline.apply_eom_clipping(config, df)
 
         # Step 3: Rolling features
         df = SegmentationPipeline.calculate_rolling_features(config, df)
@@ -229,6 +229,228 @@ class SegmentationPipeline:
         return df
 
     @staticmethod
+    @log_transformation
+    def apply_eom_clipping(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+        """
+        Step 2.5: Apply clipping to EOM amounts below threshold
+        Clips small EOM amounts to zero to reduce noise
+        This is applied after monthly aggregation to focus only on EOM amounts
+        """
+        threshold = config.daily_amount_clip_threshold
+        logger.info(f"Applying EOM clipping with threshold: {threshold:,.2f}")
+
+        # Store original EOM amount for analysis
+        df = df.with_column("original_eom_amount", F.col("eom_amount"))
+
+        # Create clipping indicators
+        df = df.with_columns(
+            [
+                "is_eom_clipped",
+                "clipped_eom_amount",
+            ],
+            [
+                F.when((F.abs(F.col("eom_amount")) > 0) & (F.abs(F.col("eom_amount")) < threshold), 1).otherwise(0),
+                F.when((F.abs(F.col("eom_amount")) > 0) & (F.abs(F.col("eom_amount")) < threshold), F.col("eom_amount")).otherwise(
+                    0
+                ),
+            ],
+        )
+
+        # Apply clipping to EOM amount only
+        df = df.with_column(
+            "eom_amount",
+            F.when((F.abs(F.col("eom_amount")) > 0) & (F.abs(F.col("eom_amount")) < threshold), 0).otherwise(F.col("eom_amount")),
+        )
+
+        # Perform clipping analysis if enabled
+        if config.clip_analysis_enabled:
+            SegmentationPipeline._analyze_eom_clipping_impact(config, df)
+
+        return df
+
+    @staticmethod
+    def _analyze_eom_clipping_impact(config: SegmentationConfig, df: DataFrame) -> None:
+        """
+        Analyze the impact of EOM clipping on the aggregated monthly data
+        """
+        logger.info("Performing detailed EOM clipping analysis...")
+
+        try:
+            # Overall EOM clipping statistics - simplified approach
+            total_records = df.count()
+            clipped_records = df.filter(F.col("is_eom_clipped") == 1).count()
+            nonzero_eom_records = df.filter(F.col("original_eom_amount") != 0).count()
+            affected_dim_values = df.filter(F.col("is_eom_clipped") == 1).select("dim_value").distinct().count()
+
+            # Amount statistics
+            amount_stats = (
+                df.agg(
+                    F.sum(F.abs("original_eom_amount")).alias("total_original_eom_amount"),
+                    F.sum(F.abs("clipped_eom_amount")).alias("total_clipped_eom_amount"),
+                    F.sum(F.abs("eom_amount")).alias("total_after_clipping_eom_amount"),
+                )
+                .to_pandas()
+                .rename(columns=str.lower)
+                .iloc[0]
+            )
+
+            # Calculate percentages
+            pct_records_clipped = (clipped_records / nonzero_eom_records * 100) if nonzero_eom_records > 0 else 0
+            pct_amount_clipped = (
+                (amount_stats["total_clipped_eom_amount"] / amount_stats["total_original_eom_amount"] * 100)
+                if amount_stats["total_original_eom_amount"] > 0
+                else 0
+            )
+
+            # Log overall statistics
+            logger.info("=" * 60)
+            logger.info("EOM CLIPPING ANALYSIS SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"Clipping Threshold: {config.daily_amount_clip_threshold:,.2f}")
+            logger.info(f"Total Monthly Records: {total_records:,}")
+            logger.info(f"Non-zero EOM Records: {nonzero_eom_records:,}")
+            logger.info(f"Clipped EOM Records: {clipped_records:,} ({pct_records_clipped:.2f}%)")
+            logger.info(f"Affected Dim Values: {affected_dim_values:,}")
+            logger.info(f"Total Original EOM Amount: {amount_stats['total_original_eom_amount']:,.2f}")
+            logger.info(f"Total Clipped EOM Amount: {amount_stats['total_clipped_eom_amount']:,.2f} ({pct_amount_clipped:.2f}%)")
+            logger.info(f"Total After Clipping: {amount_stats['total_after_clipping_eom_amount']:,.2f}")
+
+            # Analysis by dim_value
+            dim_value_stats = (
+                df.group_by("dim_value")
+                .agg(
+                    F.count("*").alias("total_months"),
+                    F.sum("is_eom_clipped").alias("clipped_months"),
+                    F.sum(F.abs("original_eom_amount")).alias("original_total"),
+                    F.sum(F.abs("clipped_eom_amount")).alias("clipped_total"),
+                    F.avg(F.when(F.col("is_eom_clipped") == 1, F.abs("clipped_eom_amount"))).alias("avg_clipped_amount"),
+                    F.max(F.when(F.col("is_eom_clipped") == 1, F.abs("clipped_eom_amount"))).alias("max_clipped_amount"),
+                )
+                .filter(F.col("clipped_months") > 0)
+            )
+
+            # Get top affected dim_values
+            top_affected = dim_value_stats.order_by(F.col("clipped_total").desc()).limit(20).to_pandas().rename(columns=str.lower)
+
+            if not top_affected.empty:
+                logger.info("\n" + "=" * 60)
+                logger.info("TOP 20 AFFECTED DIM_VALUES BY CLIPPED EOM AMOUNT")
+                logger.info("=" * 60)
+                for _, row in top_affected.iterrows():
+                    pct_clipped = (row["clipped_total"] / row["original_total"] * 100) if row["original_total"] > 0 else 0
+                    logger.info(
+                        f"  {row['dim_value']}: "
+                        f"Clipped {row['clipped_months']:,} months, "
+                        f"Amount: {row['clipped_total']:,.2f} ({pct_clipped:.1f}%), "
+                        f"Avg: {row['avg_clipped_amount']:,.2f}, "
+                        f"Max: {row['max_clipped_amount']:,.2f}"
+                    )
+
+            # Distribution analysis - simplified without percentiles
+            distribution_stats = (
+                df.filter(F.col("is_eom_clipped") == 1)
+                .select(F.abs("clipped_eom_amount").alias("amount"))
+                .agg(
+                    F.min("amount").alias("min_clipped"),
+                    F.max("amount").alias("max_clipped"),
+                    F.avg("amount").alias("mean_clipped"),
+                    F.stddev("amount").alias("std_clipped"),
+                )
+                .to_pandas()
+                .rename(columns=str.lower)
+                .iloc[0]
+            )
+
+            logger.info("\n" + "=" * 60)
+            logger.info("CLIPPED EOM AMOUNT DISTRIBUTION")
+            logger.info("=" * 60)
+            logger.info(f"Min:    {distribution_stats['min_clipped']:,.2f}")
+            logger.info(f"Max:    {distribution_stats['max_clipped']:,.2f}")
+            logger.info(f"Mean:   {distribution_stats['mean_clipped']:,.2f}")
+            logger.info(f"StdDev: {distribution_stats['std_clipped']:,.2f}")
+
+            # Monthly EOM clipping analysis
+            monthly_eom_stats = (
+                df.group_by("month")
+                .agg(
+                    F.sum("is_eom_clipped").alias("clipped_eom_records"),
+                    F.sum(F.abs("clipped_eom_amount")).alias("total_clipped_eom_amount"),
+                    F.avg(F.when(F.col("is_eom_clipped") == 1, F.abs("clipped_eom_amount"))).alias("avg_clipped_eom_amount"),
+                    F.min(F.when(F.col("is_eom_clipped") == 1, F.abs("clipped_eom_amount"))).alias("min_clipped_eom_amount"),
+                    F.max(F.when(F.col("is_eom_clipped") == 1, F.abs("clipped_eom_amount"))).alias("max_clipped_eom_amount"),
+                    F.count_distinct(F.when(F.col("is_eom_clipped") == 1, F.col("dim_value"))).alias("affected_dim_values"),
+                )
+                .filter(F.col("clipped_eom_records") > 0)
+                .order_by("month")
+            )
+
+            # Get recent months with clipping
+            recent_eom_months = monthly_eom_stats.order_by(F.col("month").desc()).limit(12).to_pandas().rename(columns=str.lower)
+
+            if not recent_eom_months.empty:
+                logger.info("\n" + "=" * 60)
+                logger.info("RECENT MONTHS EOM CLIPPING SUMMARY")
+                logger.info("=" * 60)
+                for _, row in recent_eom_months.iterrows():
+                    logger.info(
+                        f"  {row['month'].strftime('%Y-%m')}: "
+                        f"Records: {int(row['clipped_eom_records']):,}, "
+                        f"Total: {row['total_clipped_eom_amount']:,.2f}, "
+                        f"Avg: {row['avg_clipped_eom_amount']:,.2f}, "
+                        f"Min: {row['min_clipped_eom_amount']:,.2f}, "
+                        f"Max: {row['max_clipped_eom_amount']:,.2f}, "
+                        f"Dim Values: {int(row['affected_dim_values'])}"
+                    )
+
+                # Overall monthly statistics - simplified approach
+                total_amount_stats = recent_eom_months["total_clipped_eom_amount"].agg(["sum", "mean", "min", "max"])
+                avg_amount_stats = recent_eom_months["avg_clipped_eom_amount"].agg(["mean", "min", "max"])
+                records_stats = recent_eom_months["clipped_eom_records"].agg(["sum", "mean", "min", "max"])
+
+                logger.info("\n" + "=" * 60)
+                logger.info("MONTHLY EOM CLIPPING STATISTICS SUMMARY")
+                logger.info("=" * 60)
+                logger.info(f"Total Amount Clipped Across Months:")
+                logger.info(f"  Sum: {total_amount_stats['sum']:,.2f}")
+                logger.info(f"  Monthly Avg: {total_amount_stats['mean']:,.2f}")
+                logger.info(f"  Monthly Min: {total_amount_stats['min']:,.2f}")
+                logger.info(f"  Monthly Max: {total_amount_stats['max']:,.2f}")
+
+                logger.info(f"Average Clipped EOM Amount Per Record:")
+                logger.info(f"  Overall Avg: {avg_amount_stats['mean']:,.2f}")
+                logger.info(f"  Monthly Min Avg: {avg_amount_stats['min']:,.2f}")
+                logger.info(f"  Monthly Max Avg: {avg_amount_stats['max']:,.2f}")
+
+                logger.info(f"Clipped Records Per Month:")
+                logger.info(f"  Total: {int(records_stats['sum']):,}")
+                logger.info(f"  Monthly Avg: {records_stats['mean']:,.1f}")
+                logger.info(f"  Monthly Min: {int(records_stats['min']):,}")
+                logger.info(f"  Monthly Max: {int(records_stats['max']):,}")
+
+            # Warning for high impact scenarios
+            if pct_amount_clipped > 5:
+                logger.warning(f"⚠️ High EOM clipping impact: {pct_amount_clipped:.2f}% of total EOM amount clipped")
+            if clipped_records > 100:
+                logger.warning(f"⚠️ Significant EOM impact: {clipped_records:,} EOM records clipped")
+
+            # Save detailed analysis to a table if significant clipping
+            if clipped_records > 0:
+                analysis_summary = df.select(
+                    "dim_value", "month", "original_eom_amount", "eom_amount", "is_eom_clipped", "clipped_eom_amount"
+                ).filter(F.col("is_eom_clipped") == 1)
+
+                # Save to a temporary table for further analysis if needed
+                from datetime import date
+
+                table_name = f"eom_clipping_analysis_{date.today().strftime('%Y%m%d')}"
+                analysis_summary.write.mode("overwrite").save_as_table(table_name)
+                logger.info(f"\nDetailed EOM clipping analysis saved to table: {table_name}")
+
+        except Exception as e:
+            logger.warning(f"Could not complete full EOM clipping analysis: {str(e)}")
+            logger.info("Continuing with pipeline execution...")
+
+    @staticmethod
     def _analyze_clipping_impact(config: SegmentationConfig, df: DataFrame) -> None:
         """
         Analyze the impact of clipping on the data
@@ -313,15 +535,12 @@ class SegmentationPipeline:
                         f"EOM: {row['clipped_eom_days']}"
                     )
 
-            # Distribution analysis
+            # Distribution analysis - simplified without percentiles
             distribution_stats = (
                 df.filter(F.col("is_clipped") == 1)
                 .select(F.abs("clipped_amount").alias("amount"))
                 .agg(
                     F.min("amount").alias("min_clipped"),
-                    F.expr("percentile_approx(amount, 0.25)").alias("q1_clipped"),
-                    F.expr("percentile_approx(amount, 0.50)").alias("median_clipped"),
-                    F.expr("percentile_approx(amount, 0.75)").alias("q3_clipped"),
                     F.max("amount").alias("max_clipped"),
                     F.avg("amount").alias("mean_clipped"),
                     F.stddev("amount").alias("std_clipped"),
@@ -333,9 +552,6 @@ class SegmentationPipeline:
             logger.info("CLIPPED AMOUNT DISTRIBUTION")
             logger.info("=" * 60)
             logger.info(f"Min:    {distribution_stats['min_clipped']:,.2f}")
-            logger.info(f"Q1:     {distribution_stats['q1_clipped']:,.2f}")
-            logger.info(f"Median: {distribution_stats['median_clipped']:,.2f}")
-            logger.info(f"Q3:     {distribution_stats['q3_clipped']:,.2f}")
             logger.info(f"Max:    {distribution_stats['max_clipped']:,.2f}")
             logger.info(f"Mean:   {distribution_stats['mean_clipped']:,.2f}")
             logger.info(f"StdDev: {distribution_stats['std_clipped']:,.2f}")

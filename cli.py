@@ -11,6 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from loguru import logger
 from rich import print as rprint
 from rich.console import Console
@@ -24,6 +25,9 @@ from src.forecast.pipeline import ForecastingPipeline
 from src.segmentation.config import SegmentationConfig
 from src.segmentation.pipeline import SegmentationPipeline
 from src.snowflake import snowpark_session
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize Typer app and Rich console
 app = typer.Typer(
