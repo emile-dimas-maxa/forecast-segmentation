@@ -3,7 +3,6 @@ Configuration for feature pipeline
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 
 @dataclass
@@ -13,8 +12,8 @@ class FeatureConfig:
     """
 
     # Importance tiers that should be kept as individual dim_values
-    keep_individual_eom_tiers: List[str] = None
-    keep_individual_overall_tiers: List[str] = None
+    keep_individual_eom_tiers: list[str] = None
+    keep_individual_overall_tiers: list[str] = None
 
     # Custom aggregation rules
     others_in_suffix: str = "::IN"
