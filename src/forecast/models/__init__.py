@@ -1,10 +1,8 @@
-"""Models package for segmented forecasting."""
-
-from .base import BaseSegmentModel
-from .arima import ARIMAModel
-from .moving_average import MovingAverageModel
-from .null import NullModel
-from .utils import create_example_config, create_sample_data
+from src.forecast.models.base import BaseSegmentModel
+from src.forecast.models.arima import ARIMAModel
+from src.forecast.models.moving_average import MovingAverageModel
+from src.forecast.models.null import NullModel
+from src.forecast.models.utils import create_example_config, create_sample_data
 
 __all__ = [
     "BaseSegmentModel",

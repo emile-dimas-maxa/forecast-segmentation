@@ -6,7 +6,6 @@ from loguru import logger
 from snowflake.snowpark import DataFrame
 from snowflake.snowpark import functions as F
 
-from src.segmentation.config import SegmentationConfig
 from src.segmentation.transformation.utils import log_transformation
 
 

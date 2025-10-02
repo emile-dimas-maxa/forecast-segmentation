@@ -1,21 +1,14 @@
-"""
-Configuration module for EOM Forecasting Segmentation Pipeline
-"""
-
-from typing import Optional
 from pydantic import BaseModel, Field
 from datetime import date
 
 
 class SegmentationConfig(BaseModel):
-    """Configuration for the segmentation pipeline"""
-
     # Basic configuration
     min_months_history: int = Field(default=3, description="Minimum months of history required")
     rolling_window_months: int = Field(default=12, description="Rolling window for feature calculation")
     min_transactions: int = Field(default=6, description="Minimum non-zero transactions to include series")
     start_date: date = Field(default=date(2022, 1, 1), description="Analysis start date")
-    end_date: Optional[date] = Field(default=None, description="Analysis end date (None = current date)")
+    end_date: date | None = Field(default=None, description="Analysis end date (None = current date)")
 
     # Window sizes for rolling calculations
     ma_window_short: int = Field(default=3, description="Short-term moving average window (months)")
@@ -95,7 +88,7 @@ class SegmentationConfig(BaseModel):
     yoy_comparison_months: int = Field(default=12, description="Months for year-over-year comparison")
 
     # Clipping thresholds
-    daily_amount_clip_threshold: Optional[float] = Field(
+    daily_amount_clip_threshold: float | None = Field(
         default=1_000_000, description="Threshold below which daily amounts are clipped to 0 (None = no clipping)"
     )
     clip_analysis_enabled: bool = Field(default=True, description="Whether to perform detailed analysis of clipped values")
@@ -111,7 +104,7 @@ class SegmentationConfig(BaseModel):
     pattern_temperature: float = Field(default=20.0, description="Temperature for softmax in pattern classification")
 
     # Filtering options
-    target_forecast_month: Optional[date] = Field(default=None, description="Specific month to forecast (for filtering)")
+    target_forecast_month: date | None = Field(default=None, description="Specific month to forecast (for filtering)")
     filter_low_importance: bool = Field(default=False, description="Filter out LOW/NONE importance tiers")
 
     # Data source
@@ -126,7 +119,7 @@ class SegmentationConfig(BaseModel):
         validate_assignment = True
         use_enum_values = True
 
-    def get_snowflake_date_str(self, date_field: Optional[date]) -> str:
+    def get_snowflake_date_str(self, date_field: date | None) -> str:
         """Convert date to Snowflake-compatible string"""
         if date_field is None:
             return "CURRENT_DATE"

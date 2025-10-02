@@ -5,7 +5,6 @@ Data loading and preparation utilities for Streamlit app
 import json
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd

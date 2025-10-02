@@ -1,5 +1,3 @@
-"""Utility functions for model configuration and sample data generation."""
-
 import numpy as np
 import pandas as pd
 

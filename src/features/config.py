@@ -1,7 +1,3 @@
-"""
-Configuration for feature pipeline
-"""
-
 from dataclasses import dataclass
 
 

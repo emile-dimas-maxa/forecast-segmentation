@@ -1,13 +1,7 @@
-"""
-Feature pipeline for aggregating segmentation output
-Creates aggregated time series by grouping less important dim_values into "others" categories
-"""
-
 from loguru import logger
 from snowflake.snowpark import DataFrame
 from snowflake.snowpark import functions as F
 
-from src.features.config import FeatureConfig
 from src.segmentation.transformation.utils import log_transformation
 
 
@@ -44,7 +38,6 @@ def create_aggregated_features(
     Returns:
         Aggregated DataFrame with individual important dim_values and aggregated "others" categories
     """
-    # Set defaults for optional parameters
     if keep_individual_eom_tiers is None:
         keep_individual_eom_tiers = ["CRITICAL", "HIGH", "MEDIUM"]
     if keep_individual_overall_tiers is None:
@@ -52,61 +45,54 @@ def create_aggregated_features(
 
     logger.debug("Creating aggregated features from segmentation output")
 
-    # Step 1: Select the latest mapping - determine which forecast month to use for mapping
-    if forecast_month is not None:
-        mapping_forecast_month = forecast_month
-        logger.info(f"Using specified forecast month for mapping: {forecast_month}")
-    else:
-        # Get the latest forecast month for mapping
-        mapping_forecast_month = (
-            df.select(F.max("forecast_month").alias("latest_month")).to_pandas().rename(columns=str.lower).iloc[0]["latest_month"]
-        )
-        logger.info(f"Using latest forecast month for mapping: {mapping_forecast_month}")
+    # Step 1: Select date
+    mapping_forecast_month = (
+        forecast_month
+        or (df.select(F.max("forecast_month").alias("latest_month")).to_pandas().rename(columns=str.lower).iloc[0]["latest_month"])
+    )
 
-    # Step 2: Create mapping from the selected forecast month to determine which dim_values should be aggregated
-    # Filter to mapping month to get the importance tiers for each dim_value
+    log_str = (
+        f"Using specified forecast month for mapping: {forecast_month}"
+        if forecast_month is not None
+        else f"Using latest forecast month for mapping: {mapping_forecast_month}"
+    )
+
+    logger.info(log_str)
+
+    # Step 2: Create mapping
     mapping_df = (
         df.filter(F.col("forecast_month") == mapping_forecast_month)
         .select("dim_value", "eom_importance_tier", "overall_importance_tier")
         .distinct()
     )
 
-    # Create the aggregation mapping
     mapping_df = mapping_df.with_column(
         "should_aggregate",
         F.when(
-            # Keep as individual if high importance
             (F.col("eom_importance_tier").isin(keep_individual_eom_tiers))
             | (F.col("overall_importance_tier").isin(keep_individual_overall_tiers)),
             F.lit(False),
         ).otherwise(F.lit(True)),
     )
 
-    # Step 3: Apply the mapping to the unfiltered dataframe
+    # Step 3: Apply the mapping
     df = df.join(mapping_df.select("dim_value", "should_aggregate"), on="dim_value", how="left")
 
-    # Step 3 (continued): Create aggregated_dim_value column using the mapping
-    # Use concat to build the aggregated names to avoid :: literal issues
+    # Step 3: Create the aggregated dim_value
     df = df.with_column(
         "aggregated_dim_value",
         F.when(
             ~F.col("should_aggregate"),
-            F.col("dim_value"),  # Keep original dim_value for important ones
+            F.col("dim_value"),
         )
         .when(
-            # Aggregate less important ones based on suffix
-            F.col("dim_value").like("%::IN"),
-            F.concat(F.lit("others::IN")),
+            F.col("dim_value").like(f"%{others_in_suffix}"),
+            F.concat(F.lit(aggregated_in_name)),
         )
-        .otherwise(
-            # All other less important ones go to OUT
-            F.concat(F.lit("others::OUT"))
-        ),
+        .otherwise(F.concat(F.lit(aggregated_out_name))),
     )
 
     # Step 4: Group by forecast_month and aggregated_dim_value
-    # This will keep individual important dim_values as separate groups
-    # and aggregate only the "others::IN" and "others::OUT" categories
     logger.debug("Grouping data by forecast_month and aggregated_dim_value")
 
     aggregated_df = df.group_by(["forecast_month", "aggregated_dim_value"]).agg(
@@ -277,17 +263,12 @@ def create_aggregated_features(
     # Step 6: Determine dominant patterns for categorical fields
     logger.debug("Determining dominant categorical patterns")
 
-    # For categorical fields, we'll need to determine the most common pattern within each group
-    # This is more complex and would require window functions, so for now we'll use a simpler approach
-    # by selecting the pattern from the highest volume contributor
-
-    # Add derived fields
     aggregated_df = aggregated_df.with_columns(
         [
-            "dim_value",  # Use aggregated_dim_value as the main identifier
-            "avg_monthly_volume",  # Convert total back to average
-            "segment_name",  # Create aggregated segment name
-            "recommended_method",  # Determine recommended method based on patterns
+            "dim_value",
+            "avg_monthly_volume",
+            "segment_name",
+            "recommended_method",
         ],
         [
             F.col("aggregated_dim_value"),
@@ -397,28 +378,10 @@ def run_feature_pipeline(
     aggregated_out_name: str = "others::OUT",
     include_aggregation_metadata: bool = True,
 ) -> DataFrame:
-    """
-    Main entry point for the feature pipeline
-
-    Args:
-        segmentation_df: Output from segmentation pipeline
-        forecast_month: Specific forecast month to process (YYYY-MM-DD format). If None, uses latest month.
-        keep_individual_eom_tiers: Importance tiers that should be kept as individual dim_values (EOM)
-        keep_individual_overall_tiers: Importance tiers that should be kept as individual dim_values (Overall)
-        others_in_suffix: Suffix for IN aggregation
-        others_out_suffix: Suffix for OUT aggregation
-        aggregated_in_name: Name for aggregated IN category
-        aggregated_out_name: Name for aggregated OUT category
-        include_aggregation_metadata: Whether to include aggregation metadata in output
-
-    Returns:
-        Aggregated feature DataFrame with individual important dim_values and aggregated "others" categories
-    """
     logger.info("=" * 80)
     logger.info("Starting Feature Aggregation Pipeline")
     logger.info("=" * 80)
 
-    # Apply feature aggregation
     result_df = create_aggregated_features(
         df=segmentation_df,
         forecast_month=forecast_month,

@@ -1,8 +1,3 @@
-"""
-Forecasting Pipeline for EOM Predictions
-Implements multiple forecasting methods with backtesting capabilities
-"""
-
 from functools import wraps
 import time
 from datetime import date
@@ -13,6 +8,8 @@ from snowflake.snowpark import DataFrame, Session
 from snowflake.snowpark import functions as F
 from snowflake.snowpark.window import Window
 from loguru import logger
+
+from src.forecast.config import ForecastingConfig
 
 
 def log_forecast_method(func):

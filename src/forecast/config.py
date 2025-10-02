@@ -1,8 +1,3 @@
-"""
-Configuration for Forecasting and Backtesting
-"""
-
-from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import date
 from enum import Enum
@@ -47,7 +42,7 @@ class ForecastingConfig(BaseModel):
     min_history_months: int = Field(default=12, description="Minimum months of history required for forecasting")
 
     # Methods to test
-    methods_to_test: List[ForecastMethod] = Field(
+    methods_to_test: list[ForecastMethod] = Field(
         default=[
             ForecastMethod.ZERO,
             ForecastMethod.NAIVE,
@@ -59,7 +54,7 @@ class ForecastingConfig(BaseModel):
     )
 
     # Evaluation levels
-    evaluation_levels: List[EvaluationLevel] = Field(
+    evaluation_levels: list[EvaluationLevel] = Field(
         default=[EvaluationLevel.DIM_VALUE, EvaluationLevel.SEGMENT, EvaluationLevel.OVERALL],
         description="Levels at which to evaluate forecasts",
     )
@@ -67,11 +62,11 @@ class ForecastingConfig(BaseModel):
     # Method-specific configurations
 
     # Moving Average
-    ma_windows: List[int] = Field(default=[3, 6, 12], description="Window sizes for moving average")
+    ma_windows: list[int] = Field(default=[3, 6, 12], description="Window sizes for moving average")
     ma_min_periods: int = Field(default=2, description="Minimum periods required for MA calculation")
 
     # Weighted Moving Average
-    wma_weights: Optional[List[float]] = Field(
+    wma_weights: list[float] | None = Field(
         default=None, description="Weights for WMA (if None, uses exponentially decreasing weights)"
     )
     wma_window: int = Field(default=6, description="Window size for WMA")
@@ -85,7 +80,7 @@ class ForecastingConfig(BaseModel):
     arima_m: int = Field(default=12, description="Seasonal period")
 
     # SARIMA
-    sarima_seasonal_order: Optional[tuple] = Field(default=(1, 1, 1, 12), description="Seasonal order (P, D, Q, m) for SARIMA")
+    sarima_seasonal_order: tuple | None = Field(default=(1, 1, 1, 12), description="Seasonal order (P, D, Q, m) for SARIMA")
 
     # XGBoost
     xgb_n_estimators: int = Field(default=100, description="Number of trees for XGBoost")
@@ -96,7 +91,7 @@ class ForecastingConfig(BaseModel):
     xgb_use_lag_features: bool = Field(default=True, description="Include lag features")
     xgb_use_rolling_features: bool = Field(default=True, description="Include rolling features")
     xgb_use_date_features: bool = Field(default=True, description="Include date features")
-    xgb_feature_columns: Optional[List[str]] = Field(
+    xgb_feature_columns: list[str] | None = Field(
         default=None, description="Specific feature columns to use (if None, uses all available)"
     )
 
@@ -104,10 +99,10 @@ class ForecastingConfig(BaseModel):
     croston_alpha: float = Field(default=0.1, description="Smoothing parameter for Croston")
 
     # Ensemble
-    ensemble_methods: Optional[List[ForecastMethod]] = Field(
+    ensemble_methods: list[ForecastMethod] | None = Field(
         default=None, description="Methods to include in ensemble (if None, uses top performing methods)"
     )
-    ensemble_weights: Optional[Dict[str, float]] = Field(
+    ensemble_weights: dict[str, float] | None = Field(
         default=None, description="Weights for ensemble methods (if None, uses equal weights)"
     )
     ensemble_selection_metric: str = Field(default="mae", description="Metric to use for selecting ensemble methods")
@@ -153,7 +148,7 @@ class ForecastingConfig(BaseModel):
         else:
             return self.ma_windows[len(self.ma_windows) // 2]  # Use middle window
 
-    def get_xgb_features(self) -> List[str]:
+    def get_xgb_features(self) -> list[str]:
         """Get list of features to use for XGBoost"""
         if self.xgb_feature_columns:
             return self.xgb_feature_columns

@@ -1,9 +1,7 @@
-"""Null model implementation that always forecasts NaN values."""
-
 import numpy as np
 import pandas as pd
 
-from .base import BaseSegmentModel
+from src.forecast.models.base import BaseSegmentModel
 
 
 class NullModel(BaseSegmentModel):

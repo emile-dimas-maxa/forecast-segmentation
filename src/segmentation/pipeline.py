@@ -58,7 +58,7 @@ class SegmentationPipeline:
         monthly_cv_threshold: float = 0.5,
         transaction_regularity_threshold: float = 0.4,
         activity_rate_threshold: float = 0.6,
-        daily_amount_clip_threshold: float | None = None,
+        daily_amount_clip_threshold: float = 1_000_000,
         target_forecast_month: str | None = None,
         filter_low_importance: bool = False,
     ) -> DataFrame:
@@ -109,15 +109,8 @@ class SegmentationPipeline:
         logger.info("=" * 80)
 
         # Step 1: Load and prepare base data
-        if source_df is None:
-            if source_table is None:
-                raise ValueError("Either source_df or source_table must be provided")
-            df = load_source_data(session, source_table)
-        else:
-            df = source_df
-
         df = prepare_base_data(
-            df=df,
+            df=source_df or load_source_data(session, source_table),
             start_date=start_date,
             end_date=end_date,
             min_months_history=min_months_history,
@@ -128,8 +121,7 @@ class SegmentationPipeline:
         df = create_monthly_aggregates(df=df)
 
         # Step 2.5: Apply EOM clipping if configured
-        if daily_amount_clip_threshold is not None:
-            df = apply_eom_clipping(df=df, daily_amount_clip_threshold=daily_amount_clip_threshold)
+        df = apply_eom_clipping(df=df, daily_amount_clip_threshold=daily_amount_clip_threshold)
 
         # Step 3: Rolling features
         df = calculate_rolling_features(

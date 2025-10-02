@@ -1,9 +1,7 @@
-"""Moving average model implementation."""
-
 import numpy as np
 import pandas as pd
 
-from .base import BaseSegmentModel
+from src.forecast.models.base import BaseSegmentModel
 
 
 class MovingAverageModel(BaseSegmentModel):

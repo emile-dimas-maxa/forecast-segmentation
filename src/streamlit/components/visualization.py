@@ -5,12 +5,9 @@ Visualization components for Streamlit app
 import pandas as pd
 import streamlit as st
 
-try:
-    import plotly.express as px
-    import plotly.graph_objects as go
-except ImportError:
-    px = None
-    go = None
+import plotly.express as px
+import plotly.graph_objects as go
+
 
 from src.segmentation.pandas_classification import ArchetypeConfig
 

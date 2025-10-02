@@ -1,16 +1,10 @@
-"""ARIMA model implementation."""
-
 import warnings
 
 import pandas as pd
 
-from .base import BaseSegmentModel
+from src.forecast.models.base import BaseSegmentModel
 
-try:
-    from statsmodels.tsa.arima.model import ARIMA
-except ImportError:
-    # Fallback for environments without statsmodels
-    ARIMA = None
+from statsmodels.tsa.arima.model import ARIMA
 
 
 class ARIMAModel(BaseSegmentModel):
@@ -21,12 +15,11 @@ class ARIMAModel(BaseSegmentModel):
             raise ImportError("statsmodels is required for ARIMA model. Install with: pip install statsmodels")
         self.order = order
         self.kwargs = kwargs
-        self.fitted_models = {}  # Store models for each dimension combination
+        self.fitted_models = {}
         self.dimensions = None
         self.target_col = None
 
     def fit(self, data: pd.DataFrame, target_col: str = "target", dimensions: list[str] = None) -> "ARIMAModel":
-        """Fit ARIMA model to the data."""
         self.target_col = target_col
         self.dimensions = dimensions or []
         self.fitted_models = {}

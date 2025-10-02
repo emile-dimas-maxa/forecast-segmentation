@@ -1,5 +1,3 @@
-"""Base class for segment-specific models."""
-
 from abc import ABC, abstractmethod
 
 import pandas as pd

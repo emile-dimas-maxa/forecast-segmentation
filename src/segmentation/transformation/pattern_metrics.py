@@ -7,7 +7,6 @@ from snowflake.snowpark import functions as F
 from snowflake.snowpark.window import Window
 from loguru import logger
 
-from src.segmentation.config import SegmentationConfig
 from src.segmentation.transformation.utils import log_transformation
 
 

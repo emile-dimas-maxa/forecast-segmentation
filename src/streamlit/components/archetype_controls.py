@@ -9,7 +9,7 @@ from src.segmentation.pandas_classification import ArchetypeConfig
 def render_archetype_info():
     """Render information about archetype dimensions"""
     st.markdown("Adjust the centroids for each EOM pattern. Each pattern is defined by three dimensions:")
-    
+
     col_info1, col_info2, col_info3 = st.columns(3)
     with col_info1:
         st.info("**Regularity**: How consistently the pattern occurs")
@@ -23,7 +23,7 @@ def render_continuous_patterns_tab(archetype_config: ArchetypeConfig) -> Archety
     """Render continuous patterns configuration tab"""
     st.markdown("**Continuous patterns occur regularly with predictable timing**")
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("##### CONTINUOUS_STABLE")
         cs_reg = st.slider(
@@ -46,7 +46,7 @@ def render_continuous_patterns_tab(archetype_config: ArchetypeConfig) -> Archety
             "Recency", 0, 100, archetype_config.continuous_stable[2], key="cs_rec", help="Medium recency - ongoing pattern"
         )
         archetype_config.continuous_stable = (cs_reg, cs_stab, cs_rec)
-    
+
     with col2:
         st.markdown("##### CONTINUOUS_VOLATILE")
         cv_reg = st.slider(
@@ -69,7 +69,7 @@ def render_continuous_patterns_tab(archetype_config: ArchetypeConfig) -> Archety
             "Recency", 0, 100, archetype_config.continuous_volatile[2], key="cv_rec", help="Medium recency - ongoing pattern"
         )
         archetype_config.continuous_volatile = (cv_reg, cv_stab, cv_rec)
-    
+
     return archetype_config
 
 
@@ -77,7 +77,7 @@ def render_intermittent_patterns_tab(archetype_config: ArchetypeConfig) -> Arche
     """Render intermittent patterns configuration tab"""
     st.markdown("**Intermittent patterns occur sporadically with gaps**")
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("##### INTERMITTENT_ACTIVE")
         ia_reg = st.slider(
@@ -95,7 +95,7 @@ def render_intermittent_patterns_tab(archetype_config: ArchetypeConfig) -> Arche
             "Recency", 0, 100, archetype_config.intermittent_active[2], key="ia_rec", help="High recency - recently active"
         )
         archetype_config.intermittent_active = (ia_reg, ia_stab, ia_rec)
-    
+
     with col2:
         st.markdown("##### INTERMITTENT_DORMANT")
         id_reg = st.slider(
@@ -113,7 +113,7 @@ def render_intermittent_patterns_tab(archetype_config: ArchetypeConfig) -> Arche
             "Recency", 0, 100, archetype_config.intermittent_dormant[2], key="id_rec", help="Low recency - not recently active"
         )
         archetype_config.intermittent_dormant = (id_reg, id_stab, id_rec)
-    
+
     return archetype_config
 
 
@@ -121,7 +121,7 @@ def render_rare_patterns_tab(archetype_config: ArchetypeConfig) -> ArchetypeConf
     """Render rare patterns configuration tab"""
     st.markdown("**Rare patterns occur infrequently and unpredictably**")
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("##### RARE_RECENT")
         rr_reg = st.slider(
@@ -139,7 +139,7 @@ def render_rare_patterns_tab(archetype_config: ArchetypeConfig) -> ArchetypeConf
             "Recency", 0, 100, archetype_config.rare_recent[2], key="rr_rec", help="High recency - happened recently"
         )
         archetype_config.rare_recent = (rr_reg, rr_stab, rr_rec)
-    
+
     with col2:
         st.markdown("##### RARE_STALE")
         rs_reg = st.slider(
@@ -157,7 +157,7 @@ def render_rare_patterns_tab(archetype_config: ArchetypeConfig) -> ArchetypeConf
             "Recency", 0, 100, archetype_config.rare_stale[2], key="rs_rec", help="Low recency - hasn't happened recently"
         )
         archetype_config.rare_stale = (rs_reg, rs_stab, rs_rec)
-    
+
     return archetype_config
 
 
@@ -168,16 +168,16 @@ def render_archetype_controls() -> ArchetypeConfig:
 
     # Organize archetypes in tabs for better UX
     tab1, tab2, tab3 = st.tabs(["📈 Continuous Patterns", "🔄 Intermittent Patterns", "⚡ Rare Patterns"])
-    
+
     archetype_config = ArchetypeConfig()
-    
+
     with tab1:
         archetype_config = render_continuous_patterns_tab(archetype_config)
-    
+
     with tab2:
         archetype_config = render_intermittent_patterns_tab(archetype_config)
-    
+
     with tab3:
         archetype_config = render_rare_patterns_tab(archetype_config)
-    
+
     return archetype_config

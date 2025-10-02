@@ -4,22 +4,15 @@ from typing import Any
 
 import pandas as pd
 
-from .models.arima import ARIMAModel
-from .models.base import BaseSegmentModel
-from .models.moving_average import MovingAverageModel
-from .models.null import NullModel
+from src.forecast.models.arima import ARIMAModel
+from src.forecast.models.base import BaseSegmentModel
+from src.forecast.models.moving_average import MovingAverageModel
+from src.forecast.models.null import NullModel
 
-try:
-    from mlflow.pyfunc import PythonModel
-except ImportError:
-    # Fallback for environments without MLflow
-    class PythonModel:
-        pass
+from mlflow.pyfunc import PythonModel
 
 
 class SegmentedForecastModel(PythonModel):
-    """MLflow pyfunc model for segmented forecasting."""
-
     def __init__(
         self,
         segment_col: str = "segment",
@@ -53,7 +46,6 @@ class SegmentedForecastModel(PythonModel):
         self._model_registry = {"arima": ARIMAModel, "moving_average": MovingAverageModel, "null": NullModel}
 
     def _create_model(self, model_config: dict[str, Any]) -> BaseSegmentModel:
-        """Create a model instance from config."""
         model_type = model_config["type"]
         params = model_config.get("params", {})
 
@@ -82,14 +74,12 @@ class SegmentedForecastModel(PythonModel):
         for segment in data[self.segment_col].unique():
             segment_data = data[data[self.segment_col] == segment].copy()
 
-            # Get model config for this segment
             if segment in self.model_mapping:
                 model_config = self.model_mapping[segment]
             else:
                 model_config = self.fallback_model
                 print(f"Using fallback model for segment '{segment}'")
 
-            # Create and fit model
             model = self._create_model(model_config)
             model.fit(segment_data, self.target_col, self.dimensions)
             self.fitted_models[segment] = model
@@ -135,13 +125,10 @@ class SegmentedForecastModel(PythonModel):
             if segment in self.fitted_models:
                 model = self.fitted_models[segment]
             else:
-                # Use fallback model for unseen segments
                 print(f"Segment '{segment}' not seen during training, using fallback model")
                 model = self._create_model(self.fallback_model)
-                # Quick fit on available data
                 model.fit(segment_data, self.target_col, self.dimensions)
 
-            # Generate predictions
             segment_predictions = model.predict(segment_data, steps=steps)
             segment_predictions[self.segment_col] = segment
             results.append(segment_predictions)
