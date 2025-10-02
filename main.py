@@ -1,8 +1,5 @@
 from src.segmentation.pipeline import SegmentationPipeline
-from src.segmentation.config import SegmentationConfig
-
 from src.features.feature_pipeline import run_feature_pipeline
-from src.features.config import FeatureConfig
 
 from pathlib import Path
 import pandas as pd
@@ -22,28 +19,22 @@ def main():
 
     load_dotenv()
     session = snowpark_session()
-    segmentation_config = SegmentationConfig(
-        start_date="2022-01-01",
-        end_date="2025-09-01",
-    )
     if Path(f"{output_dir}/{segmentation_file_name}.csv").exists():
         segmentation_df = pd.read_csv(f"{output_dir}/{segmentation_file_name}.csv").rename(columns=str.upper)
         segmentation_df = session.create_dataframe(segmentation_df)
     else:
-        segmentation_pipeline = SegmentationPipeline()
-        segmentation_df = segmentation_pipeline.run_full_pipeline(
+        segmentation_df = SegmentationPipeline.run_full_pipeline(
             session=session,
-            config=segmentation_config,
-            source_df=None,
+            source_table="maxa_dev.data_private.int__t__cad_core_banking_regular_time_series_recorded",
+            start_date="2022-01-01",
+            end_date="2025-09-01",
         )
 
         segmentation_df.to_pandas().rename(columns=str.lower).to_csv(f"{output_dir}/{segmentation_file_name}.csv", index=False)
 
     # Run feature pipeline
-    feature_config = FeatureConfig()
     feature_df = run_feature_pipeline(
         segmentation_df=segmentation_df,
-        config=feature_config,
         forecast_month="2025-09-01",
     )
 

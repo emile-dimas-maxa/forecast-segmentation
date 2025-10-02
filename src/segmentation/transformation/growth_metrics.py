@@ -12,7 +12,7 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_growth_metrics(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_growth_metrics(df: DataFrame) -> DataFrame:
     """
     Step 10: Calculate growth metrics
     """

@@ -12,15 +12,24 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_rolling_features(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_rolling_features(
+    df: DataFrame,
+    rolling_window_months: int = 12,
+    ma_window_short: int = 3,
+) -> DataFrame:
     """
     Step 3: Calculate rolling window features
+
+    Args:
+        df: Input DataFrame
+        rolling_window_months: Rolling window for feature calculation
+        ma_window_short: Short-term moving average window (months)
     """
-    logger.debug(f"Calculating rolling features with window={config.rolling_window_months} months")
+    logger.debug(f"Calculating rolling features with window={rolling_window_months} months")
 
     # Define window specifications
-    window_12m = Window.partition_by("dim_value").order_by("month").rows_between(-12, -1)
-    window_3m = Window.partition_by("dim_value").order_by("month").rows_between(-3, -1)
+    window_12m = Window.partition_by("dim_value").order_by("month").rows_between(-rolling_window_months, -1)
+    window_3m = Window.partition_by("dim_value").order_by("month").rows_between(-ma_window_short, -1)
     window_unbounded = Window.partition_by("dim_value").order_by("month").rows_between(Window.UNBOUNDED_PRECEDING, -1)
 
     # Overall volume metrics (12-month rolling)

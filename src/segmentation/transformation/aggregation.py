@@ -13,11 +13,11 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def create_monthly_aggregates(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def create_monthly_aggregates(df: DataFrame) -> DataFrame:
     """
     Step 2: Create monthly aggregations
     """
-    logger.debug(f"Aggregating with pre_eom_days={config.pre_eom_days}, early_month_days={config.early_month_days}")
+    logger.debug("Creating monthly aggregations")
 
     agg_df = df.group_by(["dim_value", "month", "year", "month_num"]).agg(
         [
@@ -39,24 +39,18 @@ def create_monthly_aggregates(config: SegmentationConfig, df: DataFrame) -> Data
             F.coalesce(
                 F.avg(F.when((~F.col("is_last_work_day_of_month")) & (F.col("amount") != 0), F.col("amount"))), F.lit(0)
             ).alias("non_eom_avg"),
-            # Pre-EOM signals
-            F.coalesce(
-                F.sum(F.when(F.col("days_from_eom").between(-config.pre_eom_days, -1), F.col("amount")).otherwise(0)), F.lit(0)
-            ).alias("pre_eom_5d_total"),
-            F.count(F.when((F.col("days_from_eom").between(-config.pre_eom_days, -1)) & (F.col("amount") != 0), 1)).alias(
-                "pre_eom_5d_count"
+            # Pre-EOM signals (using default 5 days)
+            F.coalesce(F.sum(F.when(F.col("days_from_eom").between(-5, -1), F.col("amount")).otherwise(0)), F.lit(0)).alias(
+                "pre_eom_5d_total"
             ),
-            # Early month signal
+            F.count(F.when((F.col("days_from_eom").between(-5, -1)) & (F.col("amount") != 0), 1)).alias("pre_eom_5d_count"),
+            # Early month signal (using default 10 days)
+            F.coalesce(F.sum(F.when(F.col("day_of_month") <= 10, F.col("amount")).otherwise(0)), F.lit(0)).alias(
+                "early_month_total"
+            ),
+            # Mid month signal (using default 10-20 days)
             F.coalesce(
-                F.sum(F.when(F.col("day_of_month") <= config.early_month_days, F.col("amount")).otherwise(0)), F.lit(0)
-            ).alias("early_month_total"),
-            # Mid month signal
-            F.coalesce(
-                F.sum(
-                    F.when(
-                        F.col("day_of_month").between(config.early_month_days, config.mid_month_end_day), F.col("amount")
-                    ).otherwise(0)
-                ),
+                F.sum(F.when(F.col("day_of_month").between(10, 20), F.col("amount")).otherwise(0)),
                 F.lit(0),
             ).alias("mid_month_total"),
             # Maximum single transaction
@@ -79,13 +73,17 @@ def create_monthly_aggregates(config: SegmentationConfig, df: DataFrame) -> Data
 
 
 @log_transformation
-def apply_eom_clipping(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def apply_eom_clipping(df: DataFrame, daily_amount_clip_threshold: float) -> DataFrame:
     """
     Step 2.5: Apply clipping to EOM amounts below threshold
     Clips small EOM amounts to zero to reduce noise
     This is applied after monthly aggregation to focus only on EOM amounts
+
+    Args:
+        df: Input DataFrame
+        daily_amount_clip_threshold: Threshold for clipping small EOM amounts
     """
-    threshold = config.daily_amount_clip_threshold
+    threshold = daily_amount_clip_threshold
     logger.info(f"Applying EOM clipping with threshold: {threshold:,.2f}")
 
     # Store original EOM amount for analysis
@@ -109,14 +107,13 @@ def apply_eom_clipping(config: SegmentationConfig, df: DataFrame) -> DataFrame:
         F.when((F.abs(F.col("eom_amount")) > 0) & (F.abs(F.col("eom_amount")) < threshold), 0).otherwise(F.col("eom_amount")),
     )
 
-    # Perform clipping analysis if enabled
-    if config.clip_analysis_enabled:
-        _analyze_eom_clipping_impact(config, df)
+    # Perform clipping analysis
+    _analyze_eom_clipping_impact(df, threshold)
 
     return df
 
 
-def _analyze_eom_clipping_impact(config: SegmentationConfig, df: DataFrame) -> None:
+def _analyze_eom_clipping_impact(df: DataFrame, threshold: float) -> None:
     """
     Analyze the impact of EOM clipping on the aggregated monthly data
     """
@@ -153,7 +150,7 @@ def _analyze_eom_clipping_impact(config: SegmentationConfig, df: DataFrame) -> N
         logger.info("=" * 60)
         logger.info("EOM CLIPPING ANALYSIS SUMMARY")
         logger.info("=" * 60)
-        logger.info(f"Clipping Threshold: {config.daily_amount_clip_threshold:,.2f}")
+        logger.info(f"Clipping Threshold: {threshold:,.2f}")
         logger.info(f"Total Monthly Records: {total_records:,}")
         logger.info(f"Non-zero EOM Records: {nonzero_eom_records:,}")
         logger.info(f"Clipped EOM Records: {clipped_records:,} ({pct_records_clipped:.2f}%)")

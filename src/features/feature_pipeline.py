@@ -12,7 +12,17 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def create_aggregated_features(df: DataFrame, forecast_month: str | None = None, config: FeatureConfig | None = None) -> DataFrame:
+def create_aggregated_features(
+    df: DataFrame,
+    forecast_month: str | None = None,
+    keep_individual_eom_tiers: list[str] = None,
+    keep_individual_overall_tiers: list[str] = None,
+    others_in_suffix: str = "::IN",
+    others_out_suffix: str = "::OUT",
+    aggregated_in_name: str = "others::IN",
+    aggregated_out_name: str = "others::OUT",
+    include_aggregation_metadata: bool = True,
+) -> DataFrame:
     """
     Transform segmentation pipeline output into aggregated features
 
@@ -23,14 +33,22 @@ def create_aggregated_features(df: DataFrame, forecast_month: str | None = None,
     Args:
         df: Output DataFrame from segmentation pipeline
         forecast_month: Specific forecast month to process (YYYY-MM-DD format). If None, uses latest month.
-        config: Feature configuration (uses defaults if None)
+        keep_individual_eom_tiers: Importance tiers that should be kept as individual dim_values (EOM)
+        keep_individual_overall_tiers: Importance tiers that should be kept as individual dim_values (Overall)
+        others_in_suffix: Suffix for IN aggregation
+        others_out_suffix: Suffix for OUT aggregation
+        aggregated_in_name: Name for aggregated IN category
+        aggregated_out_name: Name for aggregated OUT category
+        include_aggregation_metadata: Whether to include aggregation metadata in output
 
     Returns:
         Aggregated DataFrame with individual important dim_values and aggregated "others" categories
     """
-    # Use default config if none provided
-    if config is None:
-        config = FeatureConfig()
+    # Set defaults for optional parameters
+    if keep_individual_eom_tiers is None:
+        keep_individual_eom_tiers = ["CRITICAL", "HIGH", "MEDIUM"]
+    if keep_individual_overall_tiers is None:
+        keep_individual_overall_tiers = ["CRITICAL"]
 
     logger.debug("Creating aggregated features from segmentation output")
 
@@ -58,8 +76,8 @@ def create_aggregated_features(df: DataFrame, forecast_month: str | None = None,
         "should_aggregate",
         F.when(
             # Keep as individual if high importance
-            (F.col("eom_importance_tier").isin(config.keep_individual_eom_tiers))
-            | (F.col("overall_importance_tier").isin(config.keep_individual_overall_tiers)),
+            (F.col("eom_importance_tier").isin(keep_individual_eom_tiers))
+            | (F.col("overall_importance_tier").isin(keep_individual_overall_tiers)),
             F.lit(False),
         ).otherwise(F.lit(True)),
     )
@@ -356,7 +374,7 @@ def create_aggregated_features(df: DataFrame, forecast_month: str | None = None,
         "is_zero_eom",
         "current_month_has_eom",
         # Add aggregation metadata if requested
-    ] + (["dim_value_count", "unique_dim_value_count"] if config.include_aggregation_metadata else [])
+    ] + (["dim_value_count", "unique_dim_value_count"] if include_aggregation_metadata else [])
 
     result_df = aggregated_df.select(*final_columns)
 
@@ -369,7 +387,15 @@ def create_aggregated_features(df: DataFrame, forecast_month: str | None = None,
 
 
 def run_feature_pipeline(
-    segmentation_df: DataFrame, forecast_month: str | None = None, config: FeatureConfig | None = None
+    segmentation_df: DataFrame,
+    forecast_month: str | None = None,
+    keep_individual_eom_tiers: list[str] = None,
+    keep_individual_overall_tiers: list[str] = None,
+    others_in_suffix: str = "::IN",
+    others_out_suffix: str = "::OUT",
+    aggregated_in_name: str = "others::IN",
+    aggregated_out_name: str = "others::OUT",
+    include_aggregation_metadata: bool = True,
 ) -> DataFrame:
     """
     Main entry point for the feature pipeline
@@ -377,7 +403,13 @@ def run_feature_pipeline(
     Args:
         segmentation_df: Output from segmentation pipeline
         forecast_month: Specific forecast month to process (YYYY-MM-DD format). If None, uses latest month.
-        config: Feature configuration (uses defaults if None)
+        keep_individual_eom_tiers: Importance tiers that should be kept as individual dim_values (EOM)
+        keep_individual_overall_tiers: Importance tiers that should be kept as individual dim_values (Overall)
+        others_in_suffix: Suffix for IN aggregation
+        others_out_suffix: Suffix for OUT aggregation
+        aggregated_in_name: Name for aggregated IN category
+        aggregated_out_name: Name for aggregated OUT category
+        include_aggregation_metadata: Whether to include aggregation metadata in output
 
     Returns:
         Aggregated feature DataFrame with individual important dim_values and aggregated "others" categories
@@ -387,7 +419,17 @@ def run_feature_pipeline(
     logger.info("=" * 80)
 
     # Apply feature aggregation
-    result_df = create_aggregated_features(segmentation_df, forecast_month, config)
+    result_df = create_aggregated_features(
+        df=segmentation_df,
+        forecast_month=forecast_month,
+        keep_individual_eom_tiers=keep_individual_eom_tiers,
+        keep_individual_overall_tiers=keep_individual_overall_tiers,
+        others_in_suffix=others_in_suffix,
+        others_out_suffix=others_out_suffix,
+        aggregated_in_name=aggregated_in_name,
+        aggregated_out_name=aggregated_out_name,
+        include_aggregation_metadata=include_aggregation_metadata,
+    )
 
     logger.info("=" * 80)
     logger.info("Completed Feature Aggregation Pipeline Successfully")

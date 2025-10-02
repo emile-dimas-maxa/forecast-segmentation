@@ -3,21 +3,16 @@ Forecasting Pipeline for EOM Predictions
 Implements multiple forecasting methods with backtesting capabilities
 """
 
-from typing import Dict, List, Optional, Tuple, Any
 from functools import wraps
 import time
 from datetime import date
 import numpy as np
 import pandas as pd
 
-import snowflake.snowpark as snowpark
 from snowflake.snowpark import DataFrame, Session
 from snowflake.snowpark import functions as F
-from snowflake.snowpark import types as T
 from snowflake.snowpark.window import Window
 from loguru import logger
-
-from src.forecast.config import ForecastingConfig, ForecastMethod, EvaluationLevel
 
 
 def log_forecast_method(func):
@@ -47,50 +42,117 @@ class ForecastingPipeline:
 
     @staticmethod
     def run_backtesting(
-        session: Session, config: ForecastingConfig, segmented_df: DataFrame
-    ) -> Tuple[DataFrame, DataFrame, DataFrame]:
+        session: Session,
+        segmented_df: DataFrame,
+        train_start_date: str,
+        train_end_date: str,
+        test_start_date: str,
+        test_end_date: str,
+        forecast_horizon: int = 1,
+        min_history_months: int = 12,
+        methods_to_test: list[str] = None,
+        evaluation_levels: list[str] = None,
+        ma_windows: list[int] = None,
+        ma_min_periods: int = 2,
+        wma_weights: list[float] = None,
+        wma_window: int = 6,
+        arima_auto_select: bool = True,
+        arima_max_p: int = 3,
+        arima_max_d: int = 2,
+        arima_max_q: int = 3,
+        output_table_prefix: str = "forecast_backtest",
+        save_forecasts: bool = True,
+        save_errors: bool = True,
+        zero_threshold: float = 1e-6,
+        mape_cap: float = 200.0,
+    ) -> tuple[DataFrame, DataFrame, DataFrame]:
         """
         Run complete backtesting pipeline
 
         Args:
             session: Snowpark session
-            config: Forecasting configuration
             segmented_df: Segmented dataframe from segmentation pipeline
+            train_start_date: Start date for training data
+            train_end_date: End date for training data
+            test_start_date: Start date for test data
+            test_end_date: End date for test data
+            forecast_horizon: Number of months to forecast ahead
+            min_history_months: Minimum months of history required for forecasting
+            methods_to_test: List of forecasting methods to test
+            evaluation_levels: Levels at which to evaluate forecasts
+            ma_windows: Window sizes for moving average
+            ma_min_periods: Minimum periods required for MA calculation
+            wma_weights: Weights for WMA (if None, uses exponentially decreasing weights)
+            wma_window: Window size for WMA
+            arima_auto_select: Auto-select ARIMA parameters
+            arima_max_p: Maximum p for ARIMA
+            arima_max_d: Maximum d for ARIMA
+            arima_max_q: Maximum q for ARIMA
+            output_table_prefix: Prefix for output tables
+            save_forecasts: Save individual forecasts
+            save_errors: Save error metrics
+            zero_threshold: Threshold for zero values in error calculations
+            mape_cap: Cap for MAPE calculation
 
         Returns:
             Tuple of (forecasts_df, dim_value_errors_df, aggregated_errors_df)
         """
+        # Set defaults for optional parameters
+        if methods_to_test is None:
+            methods_to_test = ["naive", "moving_average", "arima"]
+        if evaluation_levels is None:
+            evaluation_levels = ["dim_value", "segment", "overall"]
+        if ma_windows is None:
+            ma_windows = [3, 6, 12]
+
         logger.info("=" * 80)
         logger.info("Starting Forecasting Backtesting Pipeline")
-        logger.info(f"Train period: {config.train_start_date} to {config.train_end_date}")
-        logger.info(f"Test period: {config.test_start_date} to {config.test_end_date}")
-        logger.info(f"Methods to test: {config.methods_to_test}")
+        logger.info(f"Train period: {train_start_date} to {train_end_date}")
+        logger.info(f"Test period: {test_start_date} to {test_end_date}")
+        logger.info(f"Methods to test: {methods_to_test}")
         logger.info("=" * 80)
 
         # Prepare data for forecasting
-        train_df, test_df = ForecastingPipeline.prepare_forecast_data(config, segmented_df)
+        train_df, test_df = ForecastingPipeline.prepare_forecast_data(
+            segmented_df, train_start_date, train_end_date, test_start_date, test_end_date
+        )
 
         # Run forecasts for each method
         all_forecasts = []
-        for method in config.methods_to_test:
+        for method in methods_to_test:
             logger.info(f"\nRunning {method} forecasting...")
-            forecasts = ForecastingPipeline.generate_forecasts(session, config, train_df, test_df, method)
+            forecasts = ForecastingPipeline.generate_forecasts(
+                session=session,
+                train_df=train_df,
+                test_df=test_df,
+                method=method,
+                forecast_horizon=forecast_horizon,
+                min_history_months=min_history_months,
+                ma_windows=ma_windows,
+                ma_min_periods=ma_min_periods,
+                wma_weights=wma_weights,
+                wma_window=wma_window,
+                arima_auto_select=arima_auto_select,
+                arima_max_p=arima_max_p,
+                arima_max_d=arima_max_d,
+                arima_max_q=arima_max_q,
+            )
             all_forecasts.append(forecasts)
 
         # Combine all forecasts
         forecasts_df = ForecastingPipeline.combine_forecasts(all_forecasts)
 
         # Calculate errors at different levels
-        dim_value_errors = ForecastingPipeline.calculate_dim_value_errors(config, forecasts_df, test_df)
-        segment_errors = ForecastingPipeline.calculate_segment_errors(config, forecasts_df, test_df)
-        overall_errors = ForecastingPipeline.calculate_overall_errors(config, forecasts_df, test_df)
+        dim_value_errors = ForecastingPipeline.calculate_dim_value_errors(forecasts_df, test_df, zero_threshold, mape_cap)
+        segment_errors = ForecastingPipeline.calculate_segment_errors(forecasts_df, test_df)
+        overall_errors = ForecastingPipeline.calculate_overall_errors(forecasts_df, test_df)
 
         # Combine all error levels
         aggregated_errors = ForecastingPipeline.combine_error_levels(dim_value_errors, segment_errors, overall_errors)
 
         # Save results if configured
-        if config.save_forecasts:
-            ForecastingPipeline.save_results(session, config, forecasts_df, aggregated_errors)
+        if save_forecasts:
+            ForecastingPipeline.save_results(session, output_table_prefix, forecasts_df, aggregated_errors)
 
         logger.info("=" * 80)
         logger.info("Completed Forecasting Backtesting Pipeline")
@@ -99,18 +161,16 @@ class ForecastingPipeline:
         return forecasts_df, dim_value_errors, aggregated_errors
 
     @staticmethod
-    def prepare_forecast_data(config: ForecastingConfig, segmented_df: DataFrame) -> Tuple[DataFrame, DataFrame]:
+    def prepare_forecast_data(
+        segmented_df: DataFrame, train_start_date: str, train_end_date: str, test_start_date: str, test_end_date: str
+    ) -> tuple[DataFrame, DataFrame]:
         """Split data into train and test sets"""
         logger.info("Preparing forecast data...")
 
         # Filter to relevant date ranges
-        train_df = segmented_df.filter(
-            (F.col("forecast_month") >= config.train_start_date) & (F.col("forecast_month") <= config.train_end_date)
-        )
+        train_df = segmented_df.filter((F.col("forecast_month") >= train_start_date) & (F.col("forecast_month") <= train_end_date))
 
-        test_df = segmented_df.filter(
-            (F.col("forecast_month") >= config.test_start_date) & (F.col("forecast_month") <= config.test_end_date)
-        )
+        test_df = segmented_df.filter((F.col("forecast_month") >= test_start_date) & (F.col("forecast_month") <= test_end_date))
 
         train_count = train_df.count()
         test_count = test_df.count()
@@ -122,33 +182,48 @@ class ForecastingPipeline:
 
     @staticmethod
     def generate_forecasts(
-        session: Session, config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame, method: ForecastMethod
+        session: Session,
+        train_df: DataFrame,
+        test_df: DataFrame,
+        method: str,
+        forecast_horizon: int = 1,
+        min_history_months: int = 12,
+        ma_windows: list[int] = None,
+        ma_min_periods: int = 2,
+        wma_weights: list[float] = None,
+        wma_window: int = 6,
+        arima_auto_select: bool = True,
+        arima_max_p: int = 3,
+        arima_max_d: int = 2,
+        arima_max_q: int = 3,
     ) -> DataFrame:
         """Generate forecasts for a specific method"""
 
-        if method == ForecastMethod.ZERO:
-            return ForecastingPipeline._forecast_zero(config, train_df, test_df)
-        elif method == ForecastMethod.NAIVE:
-            return ForecastingPipeline._forecast_naive(config, train_df, test_df)
-        elif method == ForecastMethod.MOVING_AVERAGE:
-            return ForecastingPipeline._forecast_moving_average(config, train_df, test_df)
-        elif method == ForecastMethod.WEIGHTED_MOVING_AVERAGE:
-            return ForecastingPipeline._forecast_weighted_moving_average(config, train_df, test_df)
-        elif method == ForecastMethod.ARIMA:
-            return ForecastingPipeline._forecast_arima(session, config, train_df, test_df)
-        elif method == ForecastMethod.XGBOOST_GLOBAL:
-            return ForecastingPipeline._forecast_xgboost_global(session, config, train_df, test_df)
-        elif method == ForecastMethod.CROSTON:
-            return ForecastingPipeline._forecast_croston(config, train_df, test_df)
-        elif method == ForecastMethod.SEGMENT_AGGREGATE:
-            return ForecastingPipeline._forecast_segment_aggregate(config, train_df, test_df)
+        if method == "zero":
+            return ForecastingPipeline._forecast_zero(train_df, test_df)
+        elif method == "naive":
+            return ForecastingPipeline._forecast_naive(train_df, test_df)
+        elif method == "moving_average":
+            return ForecastingPipeline._forecast_moving_average(train_df, test_df, ma_windows, ma_min_periods)
+        elif method == "weighted_moving_average":
+            return ForecastingPipeline._forecast_weighted_moving_average(train_df, test_df, wma_weights, wma_window)
+        elif method == "arima":
+            return ForecastingPipeline._forecast_arima(
+                session, train_df, test_df, min_history_months, arima_auto_select, arima_max_p, arima_max_d, arima_max_q
+            )
+        elif method == "xgboost_global":
+            return ForecastingPipeline._forecast_xgboost_global(session, train_df, test_df)
+        elif method == "croston":
+            return ForecastingPipeline._forecast_croston(train_df, test_df)
+        elif method == "segment_aggregate":
+            return ForecastingPipeline._forecast_segment_aggregate(train_df, test_df)
         else:
             logger.warning(f"Method {method} not implemented, using zero forecast")
-            return ForecastingPipeline._forecast_zero(config, train_df, test_df)
+            return ForecastingPipeline._forecast_zero(train_df, test_df)
 
     @staticmethod
     @log_forecast_method
-    def _forecast_zero(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_zero(train_df: DataFrame, test_df: DataFrame) -> DataFrame:
         """Zero forecast - always predicts 0"""
 
         # Get unique dim_values and test months
@@ -161,7 +236,7 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_naive(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_naive(train_df: DataFrame, test_df: DataFrame) -> DataFrame:
         """Naive forecast - uses last observed value"""
 
         # Get last value from training data for each dim_value
@@ -187,12 +262,17 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_moving_average(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_moving_average(
+        train_df: DataFrame, test_df: DataFrame, ma_windows: list[int] = None, ma_min_periods: int = 2
+    ) -> DataFrame:
         """Moving average forecast"""
+
+        if ma_windows is None:
+            ma_windows = [3, 6, 12]
 
         all_ma_forecasts = []
 
-        for window_size in config.ma_windows:
+        for window_size in ma_windows:
             logger.debug(f"Calculating MA with window={window_size}")
 
             # Calculate moving average from training data
@@ -228,14 +308,16 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_weighted_moving_average(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_weighted_moving_average(
+        train_df: DataFrame, test_df: DataFrame, wma_weights: list[float] = None, wma_window: int = 6
+    ) -> DataFrame:
         """Weighted moving average forecast"""
 
-        window_size = config.wma_window
+        window_size = wma_window
 
         # Generate weights if not provided
-        if config.wma_weights:
-            weights = config.wma_weights[:window_size]
+        if wma_weights:
+            weights = wma_weights[:window_size]
         else:
             # Exponentially decreasing weights
             weights = [2 ** (-i) for i in range(window_size)]
@@ -271,7 +353,16 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_arima(session: Session, config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_arima(
+        session: Session,
+        train_df: DataFrame,
+        test_df: DataFrame,
+        min_history_months: int = 12,
+        arima_auto_select: bool = True,
+        arima_max_p: int = 3,
+        arima_max_d: int = 2,
+        arima_max_q: int = 3,
+    ) -> DataFrame:
         """ARIMA forecast using stored procedure or UDF"""
 
         # Convert to pandas for ARIMA modeling
@@ -286,7 +377,7 @@ class ForecastingPipeline:
             dim_train = train_pd[train_pd["dim_value"] == dim_value].sort_values("forecast_month")
             dim_test = test_pd[test_pd["dim_value"] == dim_value].sort_values("forecast_month")
 
-            if len(dim_train) < config.min_history_months:
+            if len(dim_train) < min_history_months:
                 # Use zero forecast if insufficient history
                 for _, row in dim_test.iterrows():
                     forecasts.append(
@@ -413,10 +504,10 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_croston(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_croston(train_df: DataFrame, test_df: DataFrame, croston_alpha: float = 0.1) -> DataFrame:
         """Croston's method for intermittent demand"""
 
-        alpha = config.croston_alpha
+        alpha = croston_alpha
 
         # Calculate intervals and sizes for non-zero demands
         train_pd = train_df.select("dim_value", "forecast_month", "target_eom_amount").to_pandas()
@@ -478,7 +569,7 @@ class ForecastingPipeline:
 
     @staticmethod
     @log_forecast_method
-    def _forecast_segment_aggregate(config: ForecastingConfig, train_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def _forecast_segment_aggregate(train_df: DataFrame, test_df: DataFrame) -> DataFrame:
         """Forecast at segment level then distribute"""
 
         # Extract direction from dim_value
@@ -549,7 +640,7 @@ class ForecastingPipeline:
         return forecast_df
 
     @staticmethod
-    def combine_forecasts(forecast_dfs: List[DataFrame]) -> DataFrame:
+    def combine_forecasts(forecast_dfs: list[DataFrame]) -> DataFrame:
         """Combine all forecast DataFrames"""
         logger.info("Combining all forecasts...")
 
@@ -560,7 +651,9 @@ class ForecastingPipeline:
         return combined
 
     @staticmethod
-    def calculate_dim_value_errors(config: ForecastingConfig, forecasts_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def calculate_dim_value_errors(
+        forecasts_df: DataFrame, test_df: DataFrame, zero_threshold: float = 1e-6, mape_cap: float = 200.0
+    ) -> DataFrame:
         """Calculate errors at dim_value level"""
         logger.info("Calculating dim_value level errors...")
 
@@ -572,10 +665,10 @@ class ForecastingPipeline:
                 F.pow(F.col("actual") - F.col("forecast"), 2).alias("se"),
                 # Percentage error (capped)
                 F.when(
-                    F.abs(F.col("actual")) > config.zero_threshold,
-                    F.least(F.abs((F.col("actual") - F.col("forecast")) / F.col("actual")) * 100, F.lit(config.mape_cap)),
+                    F.abs(F.col("actual")) > zero_threshold,
+                    F.least(F.abs((F.col("actual") - F.col("forecast")) / F.col("actual")) * 100, F.lit(mape_cap)),
                 )
-                .otherwise(F.when(F.abs(F.col("forecast")) > config.zero_threshold, F.lit(config.mape_cap)).otherwise(0))
+                .otherwise(F.when(F.abs(F.col("forecast")) > zero_threshold, F.lit(mape_cap)).otherwise(0))
                 .alias("ape"),
                 # Directional accuracy
                 F.when(
@@ -605,7 +698,7 @@ class ForecastingPipeline:
         return dim_value_metrics
 
     @staticmethod
-    def calculate_segment_errors(config: ForecastingConfig, forecasts_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def calculate_segment_errors(forecasts_df: DataFrame, test_df: DataFrame) -> DataFrame:
         """Calculate errors at segment level (net, credit, debit)"""
         logger.info("Calculating segment level errors...")
 
@@ -695,7 +788,7 @@ class ForecastingPipeline:
         return segment_metrics
 
     @staticmethod
-    def calculate_overall_errors(config: ForecastingConfig, forecasts_df: DataFrame, test_df: DataFrame) -> DataFrame:
+    def calculate_overall_errors(forecasts_df: DataFrame, test_df: DataFrame) -> DataFrame:
         """Calculate errors at overall level"""
         logger.info("Calculating overall level errors...")
 
@@ -811,19 +904,19 @@ class ForecastingPipeline:
         return combined
 
     @staticmethod
-    def save_results(session: Session, config: ForecastingConfig, forecasts_df: DataFrame, error_metrics_df: DataFrame) -> None:
+    def save_results(session: Session, output_table_prefix: str, forecasts_df: DataFrame, error_metrics_df: DataFrame) -> None:
         """Save forecasting results to tables"""
         logger.info("Saving results to tables...")
 
         timestamp = date.today().strftime("%Y%m%d")
 
         # Save forecasts
-        forecast_table = f"{config.output_table_prefix}_forecasts_{timestamp}"
+        forecast_table = f"{output_table_prefix}_forecasts_{timestamp}"
         forecasts_df.write.mode("overwrite").save_as_table(forecast_table)
         logger.info(f"Forecasts saved to: {forecast_table}")
 
         # Save error metrics
-        error_table = f"{config.output_table_prefix}_errors_{timestamp}"
+        error_table = f"{output_table_prefix}_errors_{timestamp}"
         error_metrics_df.write.mode("overwrite").save_as_table(error_table)
         logger.info(f"Error metrics saved to: {error_table}")
 

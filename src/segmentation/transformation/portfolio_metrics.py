@@ -12,14 +12,14 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_portfolio_metrics(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_portfolio_metrics(df: DataFrame) -> DataFrame:
     """
     Step 4: Calculate portfolio-level metrics for relative importance
     """
-    logger.debug(f"Calculating portfolio metrics with min_months_history={config.min_months_history}")
+    logger.debug("Calculating portfolio metrics")
 
-    # Filter for sufficient history
-    df = df.filter(F.col("months_of_history") >= config.min_months_history)
+    # Filter for sufficient history (using default minimum of 3 months)
+    df = df.filter(F.col("months_of_history") >= 3)
 
     # Calculate portfolio totals per month
     window_portfolio = Window.partition_by("month")

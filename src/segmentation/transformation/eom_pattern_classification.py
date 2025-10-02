@@ -11,19 +11,40 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_eom_smooth_scores(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_eom_smooth_scores(
+    df: DataFrame,
+    eom_concentration_threshold: float = 0.7,
+    eom_predictability_threshold: float = 0.6,
+    eom_frequency_threshold: float = 0.5,
+    eom_zero_ratio_threshold: float = 0.3,
+    eom_cv_threshold: float = 1.0,
+    monthly_cv_threshold: float = 0.5,
+    transaction_regularity_threshold: float = 0.4,
+    activity_rate_threshold: float = 0.6,
+) -> DataFrame:
     """
     Step 7a: Calculate smooth scores for EOM patterns
+
+    Args:
+        df: Input DataFrame
+        eom_concentration_threshold: EOM concentration threshold
+        eom_predictability_threshold: EOM predictability threshold
+        eom_frequency_threshold: EOM frequency threshold
+        eom_zero_ratio_threshold: EOM zero ratio threshold
+        eom_cv_threshold: EOM coefficient of variation threshold
+        monthly_cv_threshold: Monthly CV threshold
+        transaction_regularity_threshold: Transaction regularity threshold
+        activity_rate_threshold: Activity rate threshold
     """
     logger.debug("Calculating smooth EOM pattern scores")
 
-    # Regularity score: Sigmoid function for smooth transition
-    df = df.with_column("regularity_score", F.expr(f"100 * (1 / (1 + EXP(-{config.sigmoid_steepness} * (eom_frequency - 0.5))))"))
+    # Regularity score: Sigmoid function for smooth transition (using default steepness of 10)
+    df = df.with_column("regularity_score", F.expr("100 * (1 / (1 + EXP(-10 * (eom_frequency - 0.5))))"))
 
-    # Stability score: Inverse exponential decay based on CV
-    df = df.with_column("stability_score", F.expr(f"100 * EXP(-{config.stability_decay_rate} * GREATEST(eom_cv, 0))"))
+    # Stability score: Inverse exponential decay based on CV (using default decay rate of 2)
+    df = df.with_column("stability_score", F.expr("100 * EXP(-2 * GREATEST(eom_cv, 0))"))
 
-    # Recency score: Exponential time decay
+    # Recency score: Exponential time decay (using default decay rate of 0.8)
     df = df.with_column(
         "recency_score",
         F.when(F.col("has_eom_history") == 0, 0)
@@ -31,20 +52,18 @@ def calculate_eom_smooth_scores(config: SegmentationConfig, df: DataFrame) -> Da
         .when(F.col("months_since_last_eom") == 1, 80)
         .when(F.col("months_since_last_eom") == 2, 64)
         .when(F.col("months_since_last_eom") == 3, 51)
-        .otherwise(F.expr(f"100 * POWER({config.recency_decay_rate}, GREATEST(4, LEAST(24, months_since_last_eom)))")),
+        .otherwise(F.expr("100 * POWER(0.8, GREATEST(4, LEAST(24, months_since_last_eom)))")),
     )
 
-    # Concentration score: Logistic curve
-    df = df.with_column(
-        "concentration_score", F.expr(f"100 * (1 / (1 + EXP(-{config.concentration_steepness} * (eom_concentration - 0.5))))")
-    )
+    # Concentration score: Logistic curve (using default steepness of 8)
+    df = df.with_column("concentration_score", F.expr("100 * (1 / (1 + EXP(-8 * (eom_concentration - 0.5))))"))
 
-    # Volume importance score: Asymptotic growth
+    # Volume importance score: Asymptotic growth (using default growth rate of 5)
     df = df.with_column(
         "volume_importance_score",
         F.when(
             F.col("total_portfolio_eom_volume") > 0,
-            F.expr(f"100 * (1 - EXP(-{config.volume_growth_rate} * eom_importance_score))"),
+            F.expr("100 * (1 - EXP(-5 * eom_importance_score))"),
         ).otherwise(0),
     )
 
@@ -52,7 +71,7 @@ def calculate_eom_smooth_scores(config: SegmentationConfig, df: DataFrame) -> Da
 
 
 @log_transformation
-def calculate_pattern_distances(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_pattern_distances(df: DataFrame) -> DataFrame:
     """
     Step 7b: Calculate distances to pattern archetypes
     """
@@ -133,65 +152,66 @@ def calculate_pattern_distances(config: SegmentationConfig, df: DataFrame) -> Da
 
 
 @log_transformation
-def calculate_pattern_probabilities(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_pattern_probabilities(df: DataFrame) -> DataFrame:
     """
     Step 7c: Convert distances to probabilities using softmax
     """
-    logger.debug(f"Converting distances to probabilities with temperature={config.pattern_temperature}")
+    logger.debug("Converting distances to probabilities using softmax")
 
-    # Calculate softmax denominator
+    # Calculate softmax denominator (using default temperature of 2.0)
+    pattern_temperature = 2.0
     df = df.with_column(
         "softmax_denominator",
-        F.exp(-F.col("dist_continuous_stable") / config.pattern_temperature)
-        + F.exp(-F.col("dist_continuous_volatile") / config.pattern_temperature)
-        + F.exp(-F.col("dist_intermittent_active") / config.pattern_temperature)
-        + F.exp(-F.col("dist_intermittent_dormant") / config.pattern_temperature)
-        + F.exp(-F.col("dist_rare_recent") / config.pattern_temperature)
-        + F.exp(-F.col("dist_rare_stale") / config.pattern_temperature)
-        + F.when(F.col("has_eom_history") == 0, F.exp(-F.col("dist_no_eom") / config.pattern_temperature)).otherwise(0)
-        + F.when(F.col("months_of_history") <= 3, F.exp(-F.col("dist_emerging") / config.pattern_temperature)).otherwise(0),
+        F.exp(-F.col("dist_continuous_stable") / pattern_temperature)
+        + F.exp(-F.col("dist_continuous_volatile") / pattern_temperature)
+        + F.exp(-F.col("dist_intermittent_active") / pattern_temperature)
+        + F.exp(-F.col("dist_intermittent_dormant") / pattern_temperature)
+        + F.exp(-F.col("dist_rare_recent") / pattern_temperature)
+        + F.exp(-F.col("dist_rare_stale") / pattern_temperature)
+        + F.when(F.col("has_eom_history") == 0, F.exp(-F.col("dist_no_eom") / pattern_temperature)).otherwise(0)
+        + F.when(F.col("months_of_history") <= 3, F.exp(-F.col("dist_emerging") / pattern_temperature)).otherwise(0),
     )
 
     # Calculate probabilities for each pattern
     df = df.with_column(
         "prob_continuous_stable",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_continuous_stable") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_continuous_stable") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
     df = df.with_column(
         "prob_continuous_volatile",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_continuous_volatile") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_continuous_volatile") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
     df = df.with_column(
         "prob_intermittent_active",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_intermittent_active") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_intermittent_active") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
     df = df.with_column(
         "prob_intermittent_dormant",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_intermittent_dormant") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_intermittent_dormant") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
     df = df.with_column(
         "prob_rare_recent",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_rare_recent") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_rare_recent") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
     df = df.with_column(
         "prob_rare_stale",
         F.when(F.col("months_of_history") <= 3, 0).otherwise(
-            F.exp(-F.col("dist_rare_stale") / config.pattern_temperature) / F.col("softmax_denominator")
+            F.exp(-F.col("dist_rare_stale") / pattern_temperature) / F.col("softmax_denominator")
         ),
     )
 
@@ -199,7 +219,7 @@ def calculate_pattern_probabilities(config: SegmentationConfig, df: DataFrame) -
         "prob_no_eom",
         F.when(
             F.col("has_eom_history") == 0,
-            F.exp(-F.col("dist_no_eom") / config.pattern_temperature) / F.col("softmax_denominator"),
+            F.exp(-F.col("dist_no_eom") / pattern_temperature) / F.col("softmax_denominator"),
         ).otherwise(0),
     )
 
@@ -207,7 +227,7 @@ def calculate_pattern_probabilities(config: SegmentationConfig, df: DataFrame) -
         "prob_emerging",
         F.when(
             F.col("months_of_history") <= 3,
-            F.exp(-F.col("dist_emerging") / config.pattern_temperature) / F.col("softmax_denominator"),
+            F.exp(-F.col("dist_emerging") / pattern_temperature) / F.col("softmax_denominator"),
         ).otherwise(0),
     )
 
@@ -215,7 +235,7 @@ def calculate_pattern_probabilities(config: SegmentationConfig, df: DataFrame) -
 
 
 @log_transformation
-def classify_eom_patterns(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def classify_eom_patterns(df: DataFrame) -> DataFrame:
     """
     Step 7d: Final EOM pattern classification
     """

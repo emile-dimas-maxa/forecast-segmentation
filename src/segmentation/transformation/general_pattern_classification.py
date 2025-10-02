@@ -11,7 +11,7 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def classify_general_patterns(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def classify_general_patterns(df: DataFrame) -> DataFrame:
     """
     Step 8: General timeseries pattern classification
     """

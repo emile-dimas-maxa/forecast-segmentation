@@ -12,21 +12,32 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def load_source_data(session: Session, config: SegmentationConfig) -> DataFrame:
+def load_source_data(session: Session, source_table: str) -> DataFrame:
     """Load source data from Snowflake table"""
-    logger.debug(f"Loading data from table: {config.source_table}")
-    return session.table(config.source_table)
+    logger.debug(f"Loading data from table: {source_table}")
+    return session.table(source_table)
 
 
 @log_transformation
-def prepare_base_data(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def prepare_base_data(
+    df: DataFrame,
+    start_date: str = "2022-01-01",
+    end_date: str | None = None,
+    min_months_history: int = 3,
+    min_transactions: int = 6,
+) -> DataFrame:
     """
     Step 1: Data preparation - add time-based features
+
+    Args:
+        df: Input DataFrame
+        start_date: Analysis start date
+        end_date: Analysis end date (None = current date)
+        min_months_history: Minimum months of history required
+        min_transactions: Minimum non-zero transactions to include series
     """
     # Filter by date range
-    df = df.filter(
-        (F.col("date") >= F.lit(config.start_date)) & (F.col("date") <= F.coalesce(F.lit(config.end_date), F.current_date()))
-    )
+    df = df.filter((F.col("date") >= F.lit(start_date)) & (F.col("date") <= F.coalesce(F.lit(end_date), F.current_date())))
 
     # Add month and quarter identifiers
     df = df.with_columns(

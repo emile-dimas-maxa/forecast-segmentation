@@ -11,19 +11,28 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def select_final_columns(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def select_final_columns(
+    df: DataFrame,
+    target_forecast_month: str | None = None,
+    filter_low_importance: bool = False,
+) -> DataFrame:
     """
     Select and format final output columns
+
+    Args:
+        df: Input DataFrame
+        target_forecast_month: Target forecast month to filter to
+        filter_low_importance: Whether to filter out low importance tiers
     """
-    logger.debug(f"Selecting final columns with target_forecast_month={config.target_forecast_month}")
+    logger.debug(f"Selecting final columns with target_forecast_month={target_forecast_month}")
 
     # Apply target month filter if specified
-    if config.target_forecast_month:
-        df = df.filter(F.col("month") == config.target_forecast_month)
-        logger.info(f"Filtered to forecast month: {config.target_forecast_month}")
+    if target_forecast_month:
+        df = df.filter(F.col("month") == target_forecast_month)
+        logger.info(f"Filtered to forecast month: {target_forecast_month}")
 
     # Apply importance filter if specified
-    if config.filter_low_importance:
+    if filter_low_importance:
         df = df.filter(~F.col("eom_importance_tier").isin(["LOW", "NONE"]))
         logger.info("Filtered out LOW/NONE importance tiers")
 

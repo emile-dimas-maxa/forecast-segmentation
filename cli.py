@@ -80,39 +80,21 @@ def run_segmentation(
 
     rprint("[bold blue]🔍 Starting Radio Forecast Segmentation Pipeline[/bold blue]")
 
-    # Load configuration
-    if config_file and config_file.exists():
-        with open(config_file, "r") as f:
-            config_data = json.load(f)
-        config = SegmentationConfig(**config_data)
-        rprint(f"[green]✓[/green] Loaded configuration from {config_file}")
-    else:
-        # Create configuration from command line parameters
-        config_params = {
-            "start_date": datetime.strptime(start_date, "%Y-%m-%d").date(),
-            "source_table": source_table,
-            "min_months_history": min_months_history,
-            "rolling_window_months": rolling_window_months,
-            "min_transactions": min_transactions,
-        }
-
-        if end_date:
-            config_params["end_date"] = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-        config = SegmentationConfig(**config_params)
-        rprint("[green]✓[/green] Created configuration from command line parameters")
+    # Parse dates
+    parsed_start_date = start_date
+    parsed_end_date = end_date
 
     # Display configuration summary
     table = Table(title="Segmentation Configuration")
     table.add_column("Parameter", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row("Start Date", str(config.start_date))
-    table.add_row("End Date", str(config.end_date) if config.end_date else "Current Date")
-    table.add_row("Source Table", config.source_table)
-    table.add_row("Min Months History", str(config.min_months_history))
-    table.add_row("Rolling Window", str(config.rolling_window_months))
-    table.add_row("Min Transactions", str(config.min_transactions))
+    table.add_row("Start Date", parsed_start_date)
+    table.add_row("End Date", parsed_end_date if parsed_end_date else "Current Date")
+    table.add_row("Source Table", source_table)
+    table.add_row("Min Months History", str(min_months_history))
+    table.add_row("Rolling Window", str(rolling_window_months))
+    table.add_row("Min Transactions", str(min_transactions))
 
     console.print(table)
 
@@ -128,7 +110,15 @@ def run_segmentation(
         ) as progress:
             task = progress.add_task("Running segmentation pipeline...", total=None)
 
-            result_df = SegmentationPipeline.run_full_pipeline(session, config)
+            result_df = SegmentationPipeline.run_full_pipeline(
+                session=session,
+                source_table=source_table,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                min_months_history=min_months_history,
+                rolling_window_months=rolling_window_months,
+                min_transactions=min_transactions,
+            )
 
             progress.update(task, description="Pipeline completed successfully!")
 
@@ -294,7 +284,27 @@ def run_all_forecasting_methods(
             task = progress.add_task("Running comprehensive forecasting evaluation...", total=None)
 
             forecasts_df, dim_value_errors_df, aggregated_errors_df = ForecastingPipeline.run_backtesting(
-                session, config, segmented_df
+                session=session,
+                segmented_df=segmented_df,
+                train_start_date=config.train_start_date.strftime("%Y-%m-%d"),
+                train_end_date=config.train_end_date.strftime("%Y-%m-%d"),
+                test_start_date=config.test_start_date.strftime("%Y-%m-%d"),
+                test_end_date=config.test_end_date.strftime("%Y-%m-%d"),
+                forecast_horizon=config.forecast_horizon,
+                min_history_months=config.min_history_months,
+                methods_to_test=[method.value for method in config.methods_to_test],
+                evaluation_levels=[level.value for level in config.evaluation_levels],
+                ma_windows=config.ma_windows,
+                ma_min_periods=config.ma_min_periods,
+                wma_weights=config.wma_weights,
+                wma_window=config.wma_window,
+                arima_auto_select=config.arima_auto_select,
+                arima_max_p=config.arima_max_p,
+                arima_max_d=config.arima_max_d,
+                arima_max_q=config.arima_max_q,
+                output_table_prefix=config.output_table_prefix,
+                save_forecasts=config.save_forecasts,
+                save_errors=config.save_errors,
             )
 
             progress.update(task, description="Forecasting evaluation completed successfully!")
@@ -419,7 +429,29 @@ def run_forecasting(
         ) as progress:
             task = progress.add_task("Running forecasting pipeline...", total=None)
 
-            results = ForecastingPipeline.run_backtesting(session, config, segmented_df)
+            results = ForecastingPipeline.run_backtesting(
+                session=session,
+                segmented_df=segmented_df,
+                train_start_date=config.train_start_date.strftime("%Y-%m-%d"),
+                train_end_date=config.train_end_date.strftime("%Y-%m-%d"),
+                test_start_date=config.test_start_date.strftime("%Y-%m-%d"),
+                test_end_date=config.test_end_date.strftime("%Y-%m-%d"),
+                forecast_horizon=config.forecast_horizon,
+                min_history_months=config.min_history_months,
+                methods_to_test=[method.value for method in config.methods_to_test],
+                evaluation_levels=[level.value for level in config.evaluation_levels],
+                ma_windows=config.ma_windows,
+                ma_min_periods=config.ma_min_periods,
+                wma_weights=config.wma_weights,
+                wma_window=config.wma_window,
+                arima_auto_select=config.arima_auto_select,
+                arima_max_p=config.arima_max_p,
+                arima_max_d=config.arima_max_d,
+                arima_max_q=config.arima_max_q,
+                output_table_prefix=config.output_table_prefix,
+                save_forecasts=config.save_forecasts,
+                save_errors=config.save_errors,
+            )
 
             progress.update(task, description="Forecasting completed successfully!")
 

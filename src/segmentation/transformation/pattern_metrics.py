@@ -12,9 +12,22 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_pattern_metrics(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def calculate_pattern_metrics(
+    df: DataFrame,
+    pre_eom_signal_window: int = 6,
+    pre_eom_days: int = 5,
+    early_month_days: int = 10,
+    mid_month_end_day: int = 20,
+) -> DataFrame:
     """
     Step 5: Calculate pattern metrics for classification
+
+    Args:
+        df: Input DataFrame
+        pre_eom_signal_window: Pre-EOM signal rolling window (months)
+        pre_eom_days: Days before EOM to consider for pre-EOM signals
+        early_month_days: First N days of month for early month signal
+        mid_month_end_day: End day for mid-month period
     """
     logger.debug("Calculating pattern metrics for behavioral classification")
 

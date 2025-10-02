@@ -11,7 +11,7 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def create_final_classification(config: SegmentationConfig, df: DataFrame) -> DataFrame:
+def create_final_classification(df: DataFrame) -> DataFrame:
     """
     Step 9: Combined priority and recommendations
     """
