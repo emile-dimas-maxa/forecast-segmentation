@@ -12,9 +12,20 @@ from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def create_monthly_aggregates(df: DataFrame) -> DataFrame:
+def create_monthly_aggregates(
+    df: DataFrame,
+    pre_eom_days: int = 5,
+    early_month_days: int = 10,
+    mid_month_end_day: int = 20,
+) -> DataFrame:
     """
     Step 2: Create monthly aggregations
+
+    Args:
+        df: Input DataFrame
+        pre_eom_days: Days before EOM to consider for pre-EOM signals
+        early_month_days: First N days of month for early month signal
+        mid_month_end_day: End day for mid-month period
     """
     logger.debug("Creating monthly aggregations")
 
@@ -38,18 +49,20 @@ def create_monthly_aggregates(df: DataFrame) -> DataFrame:
             F.coalesce(
                 F.avg(F.when((~F.col("is_last_work_day_of_month")) & (F.col("amount") != 0), F.col("amount"))), F.lit(0)
             ).alias("non_eom_avg"),
-            # Pre-EOM signals (using default 5 days)
-            F.coalesce(F.sum(F.when(F.col("days_from_eom").between(-5, -1), F.col("amount")).otherwise(0)), F.lit(0)).alias(
-                "pre_eom_5d_total"
+            # Pre-EOM signals (configurable days)
+            F.coalesce(
+                F.sum(F.when(F.col("days_from_eom").between(-pre_eom_days, -1), F.col("amount")).otherwise(0)), F.lit(0)
+            ).alias("pre_eom_5d_total"),
+            F.count(F.when((F.col("days_from_eom").between(-pre_eom_days, -1)) & (F.col("amount") != 0), 1)).alias(
+                "pre_eom_5d_count"
             ),
-            F.count(F.when((F.col("days_from_eom").between(-5, -1)) & (F.col("amount") != 0), 1)).alias("pre_eom_5d_count"),
-            # Early month signal (using default 10 days)
-            F.coalesce(F.sum(F.when(F.col("day_of_month") <= 10, F.col("amount")).otherwise(0)), F.lit(0)).alias(
+            # Early month signal (configurable days)
+            F.coalesce(F.sum(F.when(F.col("day_of_month") <= early_month_days, F.col("amount")).otherwise(0)), F.lit(0)).alias(
                 "early_month_total"
             ),
-            # Mid month signal (using default 10-20 days)
+            # Mid month signal (configurable range)
             F.coalesce(
-                F.sum(F.when(F.col("day_of_month").between(10, 20), F.col("amount")).otherwise(0)),
+                F.sum(F.when(F.col("day_of_month").between(early_month_days, mid_month_end_day), F.col("amount")).otherwise(0)),
                 F.lit(0),
             ).alias("mid_month_total"),
             # Maximum single transaction

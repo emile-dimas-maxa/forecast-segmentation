@@ -2,23 +2,27 @@
 Portfolio-level metrics calculations
 """
 
+from loguru import logger
 from snowflake.snowpark import DataFrame
 from snowflake.snowpark import functions as F
 from snowflake.snowpark.window import Window
-from loguru import logger
 
 from src.segmentation.transformation.utils import log_transformation
 
 
 @log_transformation
-def calculate_portfolio_metrics(df: DataFrame) -> DataFrame:
+def calculate_portfolio_metrics(df: DataFrame, min_months_history: int = 3) -> DataFrame:
     """
     Step 4: Calculate portfolio-level metrics for relative importance
+
+    Args:
+        df: Input DataFrame
+        min_months_history: Minimum months of history required
     """
     logger.debug("Calculating portfolio metrics")
 
-    # Filter for sufficient history (using default minimum of 3 months)
-    df = df.filter(F.col("months_of_history") >= 3)
+    # Filter for sufficient history
+    df = df.filter(F.col("months_of_history") >= min_months_history)
 
     # Calculate portfolio totals per month
     window_portfolio = Window.partition_by("month")

@@ -2,9 +2,9 @@
 EOM pattern classification functions - smooth scores, distances, probabilities
 """
 
+from loguru import logger
 from snowflake.snowpark import DataFrame
 from snowflake.snowpark import functions as F
-from loguru import logger
 
 from src.segmentation.transformation.utils import log_transformation
 
@@ -157,8 +157,9 @@ def calculate_pattern_probabilities(df: DataFrame) -> DataFrame:
     """
     logger.debug("Converting distances to probabilities using softmax")
 
-    # Calculate softmax denominator (using default temperature of 2.0)
-    pattern_temperature = 2.0
+    # Calculate softmax denominator (using temperature of 20.0 to match SQL)
+    # Higher temperature = softer, less confident classifications
+    pattern_temperature = 20.0
     df = df.with_column(
         "softmax_denominator",
         F.exp(-F.col("dist_continuous_stable") / pattern_temperature)
