@@ -224,7 +224,9 @@ class ForecastingPipeline:
         """Zero forecast - always predicts 0"""
 
         # Get unique dim_values and test months
-        forecast_df = test_df.select("dim_value", "forecast_month", "segment_name", F.col("target_eom_amount").alias("actual"))
+        forecast_df = test_df.select(
+            "dim_value", "forecast_month", "eom_pattern_primary", F.col("target_eom_amount").alias("actual")
+        )
 
         # Add zero forecast
         forecast_df = forecast_df.with_columns([F.lit(0.0).alias("forecast"), F.lit("zero").alias("method")])
@@ -247,7 +249,7 @@ class ForecastingPipeline:
 
         # Join with test data
         forecast_df = test_df.select(
-            "dim_value", "forecast_month", "segment_name", F.col("target_eom_amount").alias("actual")
+            "dim_value", "forecast_month", "eom_pattern_primary", F.col("target_eom_amount").alias("actual")
         ).join(last_values, "dim_value", "left")
 
         # Use last value as forecast
@@ -286,7 +288,7 @@ class ForecastingPipeline:
 
             # Join with test data
             forecast_df = test_df.select(
-                "dim_value", "forecast_month", "segment_name", F.col("target_eom_amount").alias("actual")
+                "dim_value", "forecast_month", "eom_pattern_primary", F.col("target_eom_amount").alias("actual")
             ).join(last_ma, "dim_value", "left")
 
             # Add forecast and method info
@@ -338,7 +340,7 @@ class ForecastingPipeline:
 
         # Join with test data
         forecast_df = test_df.select(
-            "dim_value", "forecast_month", "segment_name", F.col("target_eom_amount").alias("actual")
+            "dim_value", "forecast_month", "eom_pattern_primary", F.col("target_eom_amount").alias("actual")
         ).join(wma_values, "dim_value", "left")
 
         # Add forecast and method info
@@ -365,7 +367,7 @@ class ForecastingPipeline:
         # Convert to pandas for ARIMA modeling
         train_pd = train_df.select("dim_value", "forecast_month", "target_eom_amount").to_pandas()
 
-        test_pd = test_df.select("dim_value", "forecast_month", "segment_name", "target_eom_amount").to_pandas()
+        test_pd = test_df.select("dim_value", "forecast_month", "eom_pattern_primary", "target_eom_amount").to_pandas()
 
         forecasts = []
 
@@ -381,7 +383,7 @@ class ForecastingPipeline:
                         {
                             "dim_value": dim_value,
                             "forecast_month": row["forecast_month"],
-                            "segment_name": row["segment_name"],
+                            "eom_pattern_primary": row["eom_pattern_primary"],
                             "actual": row["target_eom_amount"],
                             "forecast": 0.0,
                             "method": "arima",
@@ -406,7 +408,7 @@ class ForecastingPipeline:
                         {
                             "dim_value": dim_value,
                             "forecast_month": row["forecast_month"],
-                            "segment_name": row["segment_name"],
+                            "eom_pattern_primary": row["eom_pattern_primary"],
                             "actual": row["target_eom_amount"],
                             "forecast": forecast_value,
                             "method": "arima",
@@ -421,7 +423,7 @@ class ForecastingPipeline:
                         {
                             "dim_value": dim_value,
                             "forecast_month": row["forecast_month"],
-                            "segment_name": row["segment_name"],
+                            "eom_pattern_primary": row["eom_pattern_primary"],
                             "actual": row["target_eom_amount"],
                             "forecast": 0.0,
                             "method": "arima",
@@ -448,7 +450,7 @@ class ForecastingPipeline:
 
         # Prepare test data
         test_features = test_df.select(
-            "dim_value", "forecast_month", "segment_name", "target_eom_amount", *feature_cols
+            "dim_value", "forecast_month", "eom_pattern_primary", "target_eom_amount", *feature_cols
         ).to_pandas()
 
         # Handle missing values
@@ -480,7 +482,7 @@ class ForecastingPipeline:
             predictions = model.predict(X_test)
 
             # Create forecast dataframe
-            forecast_data = test_features[["dim_value", "forecast_month", "segment_name", "target_eom_amount"]].copy()
+            forecast_data = test_features[["dim_value", "forecast_month", "eom_pattern_primary", "target_eom_amount"]].copy()
             forecast_data["forecast"] = predictions
             forecast_data["method"] = "xgboost_global"
             forecast_data.rename(columns={"target_eom_amount": "actual"}, inplace=True)
@@ -489,7 +491,7 @@ class ForecastingPipeline:
             logger.warning("XGBoost not available, using fallback forecast")
             # Fallback to simple average
             avg_value = train_features["target_eom_amount"].mean()
-            forecast_data = test_features[["dim_value", "forecast_month", "segment_name", "target_eom_amount"]].copy()
+            forecast_data = test_features[["dim_value", "forecast_month", "eom_pattern_primary", "target_eom_amount"]].copy()
             forecast_data["forecast"] = avg_value
             forecast_data["method"] = "xgboost_global"
             forecast_data.rename(columns={"target_eom_amount": "actual"}, inplace=True)
@@ -509,7 +511,7 @@ class ForecastingPipeline:
         # Calculate intervals and sizes for non-zero demands
         train_pd = train_df.select("dim_value", "forecast_month", "target_eom_amount").to_pandas()
 
-        test_pd = test_df.select("dim_value", "forecast_month", "segment_name", "target_eom_amount").to_pandas()
+        test_pd = test_df.select("dim_value", "forecast_month", "eom_pattern_primary", "target_eom_amount").to_pandas()
 
         forecasts = []
 
@@ -552,7 +554,7 @@ class ForecastingPipeline:
                     {
                         "dim_value": dim_value,
                         "forecast_month": row["forecast_month"],
-                        "segment_name": row["segment_name"],
+                        "eom_pattern_primary": row["eom_pattern_primary"],
                         "actual": row["target_eom_amount"],
                         "forecast": forecast_value,
                         "method": "croston",
@@ -585,43 +587,45 @@ class ForecastingPipeline:
         )
 
         # Aggregate to segment level
-        segment_train = train_with_direction.group_by("segment_name", "direction", "forecast_month").agg(
+        segment_train = train_with_direction.group_by("eom_pattern_primary", "direction", "forecast_month").agg(
             F.sum("target_eom_amount").alias("segment_total")
         )
 
         # Simple forecast at segment level (using moving average)
-        window_spec = Window.partition_by("segment_name", "direction").order_by("forecast_month").rows_between(-5, 0)
+        window_spec = Window.partition_by("eom_pattern_primary", "direction").order_by("forecast_month").rows_between(-5, 0)
 
         segment_forecast = segment_train.with_column("segment_forecast", F.avg("segment_total").over(window_spec))
 
         # Get last forecast for each segment
-        last_forecast = segment_forecast.group_by("segment_name", "direction").agg(F.max("forecast_month").alias("last_month"))
+        last_forecast = segment_forecast.group_by("eom_pattern_primary", "direction").agg(
+            F.max("forecast_month").alias("last_month")
+        )
 
         last_forecast = last_forecast.join(
             segment_forecast,
-            (last_forecast["segment_name"] == segment_forecast["segment_name"])
+            (last_forecast["eom_pattern_primary"] == segment_forecast["eom_pattern_primary"])
             & (last_forecast["direction"] == segment_forecast["direction"])
             & (last_forecast["last_month"] == segment_forecast["forecast_month"]),
             "inner",
-        ).select(segment_forecast["segment_name"], segment_forecast["direction"], segment_forecast["segment_forecast"])
+        ).select(segment_forecast["eom_pattern_primary"], segment_forecast["direction"], segment_forecast["segment_forecast"])
 
         # Calculate distribution weights from training data
-        dim_weights = train_with_direction.group_by("segment_name", "direction", "dim_value").agg(
+        dim_weights = train_with_direction.group_by("eom_pattern_primary", "direction", "dim_value").agg(
             F.avg("target_eom_amount").alias("dim_avg")
         )
 
         # Calculate total per segment for weights
-        segment_totals = dim_weights.group_by("segment_name", "direction").agg(F.sum("dim_avg").alias("segment_total_avg"))
+        segment_totals = dim_weights.group_by("eom_pattern_primary", "direction").agg(F.sum("dim_avg").alias("segment_total_avg"))
 
         # Calculate weights
-        dim_weights = dim_weights.join(segment_totals, ["segment_name", "direction"], "left").with_column(
+        dim_weights = dim_weights.join(segment_totals, ["eom_pattern_primary", "direction"], "left").with_column(
             "weight", F.when(F.col("segment_total_avg") > 0, F.col("dim_avg") / F.col("segment_total_avg")).otherwise(0)
         )
 
         # Join test data with segment forecast and weights
-        forecast_df = test_with_direction.join(last_forecast, ["segment_name", "direction"], "left").join(
-            dim_weights.select("segment_name", "direction", "dim_value", "weight"),
-            ["segment_name", "direction", "dim_value"],
+        forecast_df = test_with_direction.join(last_forecast, ["eom_pattern_primary", "direction"], "left").join(
+            dim_weights.select("eom_pattern_primary", "direction", "dim_value", "weight"),
+            ["eom_pattern_primary", "direction", "dim_value"],
             "left",
         )
 
@@ -632,7 +636,7 @@ class ForecastingPipeline:
                 F.lit("segment_aggregate").alias("method"),
                 F.col("target_eom_amount").alias("actual"),
             ]
-        ).select("dim_value", "forecast_month", "segment_name", "actual", "forecast", "method")
+        ).select("dim_value", "forecast_month", "eom_pattern_primary", "actual", "forecast", "method")
 
         return forecast_df
 
@@ -680,7 +684,7 @@ class ForecastingPipeline:
         )
 
         # Aggregate by dim_value and method
-        dim_value_metrics = errors.group_by("dim_value", "segment_name", "method").agg(
+        dim_value_metrics = errors.group_by("dim_value", "eom_pattern_primary", "method").agg(
             F.count("*").alias("n_periods"),
             F.avg("ae").alias("mae"),
             F.sqrt(F.avg("se")).alias("rmse"),
@@ -708,13 +712,13 @@ class ForecastingPipeline:
         )
 
         # Aggregate to segment-direction level
-        segment_dir_agg = forecasts_with_dir.group_by("segment_name", "direction", "forecast_month", "method").agg(
+        segment_dir_agg = forecasts_with_dir.group_by("eom_pattern_primary", "direction", "forecast_month", "method").agg(
             F.sum("actual").alias("actual_sum"), F.sum("forecast").alias("forecast_sum")
         )
 
         # Calculate net (credit - debit)
         credit_df = segment_dir_agg.filter(F.col("direction") == "CREDIT").select(
-            F.col("segment_name"),
+            F.col("eom_pattern_primary"),
             F.col("forecast_month"),
             F.col("method"),
             F.col("actual_sum").alias("credit_actual"),
@@ -722,7 +726,7 @@ class ForecastingPipeline:
         )
 
         debit_df = segment_dir_agg.filter(F.col("direction") == "DEBIT").select(
-            F.col("segment_name"),
+            F.col("eom_pattern_primary"),
             F.col("forecast_month"),
             F.col("method"),
             F.col("actual_sum").alias("debit_actual"),
@@ -730,7 +734,7 @@ class ForecastingPipeline:
         )
 
         # Join and calculate net
-        net_df = credit_df.join(debit_df, ["segment_name", "forecast_month", "method"], "outer").with_columns(
+        net_df = credit_df.join(debit_df, ["eom_pattern_primary", "forecast_month", "method"], "outer").with_columns(
             [
                 (F.coalesce(F.col("credit_actual"), F.lit(0)) - F.coalesce(F.col("debit_actual"), F.lit(0))).alias("net_actual"),
                 (F.coalesce(F.col("credit_forecast"), F.lit(0)) - F.coalesce(F.col("debit_forecast"), F.lit(0))).alias(
@@ -763,7 +767,7 @@ class ForecastingPipeline:
         )
 
         # Aggregate metrics
-        segment_metrics = segment_errors.group_by("segment_name", "method").agg(
+        segment_metrics = segment_errors.group_by("eom_pattern", "method").agg(
             F.count("*").alias("n_periods"),
             # Net metrics
             F.avg("net_ae").alias("net_mae"),

@@ -67,7 +67,7 @@ def create_archetype_visualization(archetype_config: ArchetypeConfig):
 
 def create_pattern_distribution_chart(classified_data: pd.DataFrame):
     """Create EOM pattern distribution chart"""
-    pattern_counts = classified_data["eom_pattern"].value_counts()
+    pattern_counts = classified_data["eom_pattern_primary"].value_counts()
 
     fig_dist = px.bar(
         x=pattern_counts.index,
@@ -143,7 +143,9 @@ def render_detailed_results_table(classified_data: pd.DataFrame):
     col1, col2, col3 = st.columns(3)
     with col1:
         pattern_filter = st.multiselect(
-            "Filter by Pattern", options=classified_data["eom_pattern"].unique(), default=classified_data["eom_pattern"].unique()
+            "Filter by Pattern",
+            options=classified_data["eom_pattern_primary"].unique(),
+            default=classified_data["eom_pattern_primary"].unique(),
         )
     with col2:
         min_confidence = st.slider("Minimum Confidence", 0.0, 1.0, 0.0, 0.1)
@@ -152,13 +154,14 @@ def render_detailed_results_table(classified_data: pd.DataFrame):
 
     # Apply filters
     filtered_data = classified_data[
-        (classified_data["eom_pattern"].isin(pattern_filter)) & (classified_data["eom_pattern_confidence"] >= min_confidence)
+        (classified_data["eom_pattern_primary"].isin(pattern_filter))
+        & (classified_data["eom_pattern_confidence"] >= min_confidence)
     ].head(max_rows)
 
     # Display table
     display_cols = [
         "dim_value",
-        "eom_pattern",
+        "eom_pattern_primary",
         "eom_pattern_confidence",
         "regularity_score",
         "stability_score",

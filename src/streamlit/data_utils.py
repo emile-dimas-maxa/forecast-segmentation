@@ -359,18 +359,18 @@ def calculate_evaluation_metrics(df: pd.DataFrame, human_labels: dict[str, str])
     labeled_series["human_label"] = labeled_series["dim_value"].map(human_labels)
 
     # Calculate accuracy
-    correct_predictions = (labeled_series["eom_pattern"] == labeled_series["human_label"]).sum()
+    correct_predictions = (labeled_series["eom_pattern_primary"] == labeled_series["human_label"]).sum()
     total_predictions = len(labeled_series)
     accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
 
     # Calculate per-class metrics
-    unique_labels = set(labeled_series["human_label"].unique()) | set(labeled_series["eom_pattern"].unique())
+    unique_labels = set(labeled_series["human_label"].unique()) | set(labeled_series["eom_pattern_primary"].unique())
 
     class_metrics = {}
     for label in unique_labels:
-        true_positives = ((labeled_series["eom_pattern"] == label) & (labeled_series["human_label"] == label)).sum()
-        false_positives = ((labeled_series["eom_pattern"] == label) & (labeled_series["human_label"] != label)).sum()
-        false_negatives = ((labeled_series["eom_pattern"] != label) & (labeled_series["human_label"] == label)).sum()
+        true_positives = ((labeled_series["eom_pattern_primary"] == label) & (labeled_series["human_label"] == label)).sum()
+        false_positives = ((labeled_series["eom_pattern_primary"] == label) & (labeled_series["human_label"] != label)).sum()
+        false_negatives = ((labeled_series["eom_pattern_primary"] != label) & (labeled_series["human_label"] == label)).sum()
 
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
@@ -409,10 +409,12 @@ def get_timeseries_plot_data(df: pd.DataFrame, series_id: str) -> tuple[pd.DataF
         "avg_monthly_volume": series_data["monthly_volume"].mean(),
         "avg_eom_amount": series_data["target_eom_amount"].mean(),
         "eom_frequency": (series_data["target_eom_amount"] > 0).mean(),
+        "eom_pattern_primary": series_data["eom_pattern_primary"].iloc[-1]
+        if "eom_pattern_primary" in series_data.columns
+        else "unknown",
         "volatility_cv": series_data["monthly_volume"].std() / series_data["monthly_volume"].mean()
         if series_data["monthly_volume"].mean() > 0
         else 0,
-        "pattern_type_true": series_data["pattern_type_true"].iloc[-1] if "pattern_type_true" in series_data.columns else "unknown",
     }
 
     return series_data, summary

@@ -217,7 +217,7 @@ class PandasEOMClassifier:
 
             return max_pattern
 
-        df["eom_pattern"] = df.apply(get_primary_pattern, axis=1)
+        df["eom_pattern_primary"] = df.apply(get_primary_pattern, axis=1)
 
         # Pattern confidence (highest probability)
         df["eom_pattern_confidence"] = df[prob_cols].max(axis=1)

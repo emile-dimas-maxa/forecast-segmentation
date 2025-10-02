@@ -28,7 +28,7 @@ class GridSearchConfig:
 
     # Data configuration
     feature_file_path: str = "outputs/feature_df.csv"
-    segment_col: str = "segment_name"
+    segment_col: str = "eom_pattern_primary"
     target_col: str = "target_eom_amount"  # Based on feature pipeline output
     date_col: str = "forecast_month"
     dimensions: list[str] = field(default_factory=lambda: ["dim_value"])  # Adjust based on your data
@@ -155,11 +155,11 @@ def generate_model_combinations(config: GridSearchConfig, segments: list[str]) -
 
         # Generate all combinations
         combinations = []
-        segment_names = list(segments)
-        segment_options = [segment_model_options[seg] for seg in segment_names]
+        eom_pattern_primary = list(segments)
+        segment_options = [segment_model_options[seg] for seg in eom_pattern_primary]
 
         for combo in itertools.product(*segment_options):
-            model_mapping = {segment: model_config for segment, model_config in zip(segment_names, combo, strict=True)}
+            model_mapping = {segment: model_config for segment, model_config in zip(eom_pattern_primary, combo, strict=True)}
             combinations.append(model_mapping)
 
         logger.info(f"Generated {len(combinations)} model combinations based on segment mapping")
@@ -560,7 +560,7 @@ def main():
     # Create configuration
     config = GridSearchConfig(
         feature_file_path="outputs/feature_df.csv",
-        segment_col="segment_name",  # Adjust based on your data
+        segment_col="eom_pattern_primary",  # Adjust based on your data
         target_col="target_eom_amount",  # Adjust based on your actual target column
         date_col="forecast_month",
         dimensions=["dim_value"],  # Adjust based on your data structure

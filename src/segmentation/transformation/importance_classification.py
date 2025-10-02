@@ -12,10 +12,6 @@ from src.segmentation.transformation.utils import log_transformation
 @log_transformation
 def classify_importance(
     df: DataFrame,
-    # Overall importance thresholds (based on total volume)
-    critical_volume_threshold: float = 100_000_000_000,
-    high_volume_threshold: float = 5_000_000_000,
-    medium_volume_threshold: float = 1_000_000_000,
     # Monthly average thresholds
     critical_monthly_avg_threshold: float = 1_000_000_000,
     high_monthly_avg_threshold: float = 500_000_000,
@@ -24,10 +20,6 @@ def classify_importance(
     critical_max_transaction_threshold: float = 50_000_000,
     high_max_transaction_threshold: float = 10_000_000,
     medium_max_transaction_threshold: float = 5_000_000,
-    # EOM importance thresholds (based on EOM-specific volume)
-    critical_eom_volume_threshold: float = 50_000_000_000,
-    high_eom_volume_threshold: float = 50_000_000_000,
-    medium_eom_volume_threshold: float = 50_000_000_000,
     # EOM monthly average thresholds
     critical_eom_monthly_threshold: float = 50_000_000_000,
     high_eom_monthly_threshold: float = 50_000_000_000,
@@ -56,18 +48,12 @@ def classify_importance(
 
     Args:
         df: Input DataFrame with portfolio metrics
-        critical_volume_threshold: Critical overall volume (12 months)
-        high_volume_threshold: High overall volume (12 months)
-        medium_volume_threshold: Medium overall volume (12 months)
         critical_monthly_avg_threshold: Critical monthly average
         high_monthly_avg_threshold: High monthly average
         medium_monthly_avg_threshold: Medium monthly average
         critical_max_transaction_threshold: Critical single transaction
         high_max_transaction_threshold: High single transaction
         medium_max_transaction_threshold: Medium single transaction
-        critical_eom_volume_threshold: Critical EOM volume (12 months)
-        high_eom_volume_threshold: High EOM volume (12 months)
-        medium_eom_volume_threshold: Medium EOM volume (12 months)
         critical_eom_monthly_threshold: Critical EOM monthly average
         high_eom_monthly_threshold: High EOM monthly average
         medium_eom_monthly_threshold: Medium EOM monthly average

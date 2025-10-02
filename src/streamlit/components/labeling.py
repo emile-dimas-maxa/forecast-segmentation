@@ -88,7 +88,7 @@ def render_series_info(series_data: pd.DataFrame, summary: dict, predicted_patte
 
     with col3:
         st.metric("Volatility (CV)", f"{summary['volatility_cv']:.2f}")
-        st.metric("Pattern (True)", summary.get("pattern_type_true", "Unknown"))
+        st.metric("Pattern (True)", summary.get("eom_pattern_primary", "Unknown"))
 
 
 def render_prediction_info(predicted_pattern: str, confidence: float):
@@ -125,7 +125,7 @@ def render_labeling_interface(
     current_row = classification_data.iloc[current_idx]
 
     # Get model predictions
-    predicted_pattern = current_row["eom_pattern"]
+    predicted_pattern = current_row["eom_pattern_primary"]
     confidence = current_row["eom_pattern_confidence"]
 
     # Get current human label

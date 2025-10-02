@@ -34,21 +34,12 @@ def main():
 
     # Run feature pipeline
     feature_df = run_feature_pipeline(
-        segmentation_df=segmentation_df,
+        df=segmentation_df,
         forecast_month="2025-09-01",
     )
 
     # Run forecasting pipeline
     feature_df = feature_df.to_pandas().rename(columns=str.lower)
-    splitter = TimeSeriesBacktest(
-        forecast_horizon=1,
-        input_steps=1,
-        expanding_window=True,
-        stride=1,
-        ascending=True,
-        date_column="forecast_month",
-        min_backtest_iterations=1,
-    )
 
     feature_df.to_csv(f"{output_dir}/{feature_file_name}.csv", index=False)
 

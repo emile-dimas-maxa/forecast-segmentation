@@ -2,6 +2,8 @@
 EOM pattern classification functions - smooth scores, distances, probabilities
 """
 
+from dataclasses import dataclass
+
 from loguru import logger
 from snowflake.snowpark import DataFrame
 from snowflake.snowpark import functions as F
@@ -9,31 +11,52 @@ from snowflake.snowpark import functions as F
 from src.segmentation.transformation.utils import log_transformation
 
 
+@dataclass
+class ArchetypeConfig:
+    """Configuration for pattern archetypes (centroids) for Snowpark implementation"""
+
+    # CONTINUOUS_STABLE: high regularity, high stability, medium recency
+    continuous_stable: tuple[float, float, float] = (90, 80, 50)
+
+    # CONTINUOUS_VOLATILE: high regularity, low stability, medium recency
+    continuous_volatile: tuple[float, float, float] = (90, 20, 50)
+
+    # INTERMITTENT_ACTIVE: medium regularity, medium stability, high recency
+    intermittent_active: tuple[float, float, float] = (50, 50, 90)
+
+    # INTERMITTENT_DORMANT: medium regularity, medium stability, low recency
+    intermittent_dormant: tuple[float, float, float] = (50, 50, 20)
+
+    # RARE_RECENT: low regularity, any stability, high recency
+    rare_recent: tuple[float, float, float] = (15, 50, 85)
+
+    # RARE_STALE: low regularity, any stability, low recency
+    rare_stale: tuple[float, float, float] = (15, 50, 15)
+
+    # NO_EOM: all zeros
+    no_eom: tuple[float, float, float] = (0, 50, 0)
+
+    # Weights for distance calculation [regularity, stability, recency]
+    weights: tuple[float, float, float] = (1.0, 1.0, 0.5)
+
+    # Special weight for stability in rare patterns (lower = less importance)
+    rare_stability_weight: float = 0.3
+
+    # Pattern classification parameters
+    pattern_temperature: float = 20.0  # Softmax temperature (higher = softer classifications)
+    emerging_months_threshold: int = 3  # Max months for EMERGING classification
+    no_eom_min_months: int = 6  # Min months history for NO_EOM classification
+
+
 @log_transformation
 def calculate_eom_smooth_scores(
     df: DataFrame,
-    eom_concentration_threshold: float = 0.7,
-    eom_predictability_threshold: float = 0.6,
-    eom_frequency_threshold: float = 0.5,
-    eom_zero_ratio_threshold: float = 0.3,
-    eom_cv_threshold: float = 1.0,
-    monthly_cv_threshold: float = 0.5,
-    transaction_regularity_threshold: float = 0.4,
-    activity_rate_threshold: float = 0.6,
 ) -> DataFrame:
     """
     Step 7a: Calculate smooth scores for EOM patterns
 
     Args:
         df: Input DataFrame
-        eom_concentration_threshold: EOM concentration threshold
-        eom_predictability_threshold: EOM predictability threshold
-        eom_frequency_threshold: EOM frequency threshold
-        eom_zero_ratio_threshold: EOM zero ratio threshold
-        eom_cv_threshold: EOM coefficient of variation threshold
-        monthly_cv_threshold: Monthly CV threshold
-        transaction_regularity_threshold: Transaction regularity threshold
-        activity_rate_threshold: Activity rate threshold
     """
     logger.debug("Calculating smooth EOM pattern scores")
 
@@ -55,7 +78,7 @@ def calculate_eom_smooth_scores(
     )
 
     # Concentration score: Logistic curve (using default steepness of 8)
-    df = df.with_column("concentration_score", F.expr("100 * (1 / (1 + EXP(-8 * (eom_concentration - 0.5))))"))
+    df = df.with_column("concentration_score", F.expr("100 * (1 / (1 + EXP(-5 * (eom_concentration - 0.5))))"))
 
     # Volume importance score: Asymptotic growth (using default growth rate of 5)
     df = df.with_column(
@@ -70,77 +93,96 @@ def calculate_eom_smooth_scores(
 
 
 @log_transformation
-def calculate_pattern_distances(df: DataFrame) -> DataFrame:
+def calculate_pattern_distances(df: DataFrame, archetype_config: ArchetypeConfig = None) -> DataFrame:
     """
     Step 7b: Calculate distances to pattern archetypes
+
+    Args:
+        df: Input DataFrame with smooth scores
+        archetype_config: Configuration for pattern archetypes (centroids)
     """
     logger.debug("Calculating distances to EOM pattern archetypes")
 
-    # CONTINUOUS_STABLE: high regularity (90), high stability (80), medium recency (50)
+    if archetype_config is None:
+        archetype_config = ArchetypeConfig()
+
+    # Extract weights
+    w_reg, w_stab, w_rec = archetype_config.weights
+
+    # CONTINUOUS_STABLE
+    reg, stab, rec = archetype_config.continuous_stable
     df = df.with_column(
         "dist_continuous_stable",
         F.sqrt(
-            F.pow(90 - F.col("regularity_score"), 2)
-            + F.pow(80 - F.col("stability_score"), 2)
-            + F.pow(50 - F.col("recency_score"), 2) * 0.5
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * w_stab
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # CONTINUOUS_VOLATILE: high regularity (90), low stability (20), medium recency (50)
+    # CONTINUOUS_VOLATILE
+    reg, stab, rec = archetype_config.continuous_volatile
     df = df.with_column(
         "dist_continuous_volatile",
         F.sqrt(
-            F.pow(90 - F.col("regularity_score"), 2)
-            + F.pow(20 - F.col("stability_score"), 2)
-            + F.pow(50 - F.col("recency_score"), 2) * 0.5
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * w_stab
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # INTERMITTENT_ACTIVE: medium regularity (50), medium stability (50), high recency (90)
+    # INTERMITTENT_ACTIVE
+    reg, stab, rec = archetype_config.intermittent_active
     df = df.with_column(
         "dist_intermittent_active",
         F.sqrt(
-            F.pow(50 - F.col("regularity_score"), 2)
-            + F.pow(50 - F.col("stability_score"), 2)
-            + F.pow(90 - F.col("recency_score"), 2)
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * w_stab
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # INTERMITTENT_DORMANT: medium regularity (50), medium stability (50), low recency (20)
+    # INTERMITTENT_DORMANT
+    reg, stab, rec = archetype_config.intermittent_dormant
     df = df.with_column(
         "dist_intermittent_dormant",
         F.sqrt(
-            F.pow(50 - F.col("regularity_score"), 2)
-            + F.pow(50 - F.col("stability_score"), 2)
-            + F.pow(20 - F.col("recency_score"), 2)
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * w_stab
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # RARE_RECENT: low regularity (15), any stability (50), high recency (85)
+    # RARE_RECENT
+    reg, stab, rec = archetype_config.rare_recent
     df = df.with_column(
         "dist_rare_recent",
         F.sqrt(
-            F.pow(15 - F.col("regularity_score"), 2)
-            + F.pow(50 - F.col("stability_score"), 2) * 0.3
-            + F.pow(85 - F.col("recency_score"), 2)
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * archetype_config.rare_stability_weight
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # RARE_STALE: low regularity (15), any stability (50), low recency (15)
+    # RARE_STALE
+    reg, stab, rec = archetype_config.rare_stale
     df = df.with_column(
         "dist_rare_stale",
         F.sqrt(
-            F.pow(15 - F.col("regularity_score"), 2)
-            + F.pow(50 - F.col("stability_score"), 2) * 0.3
-            + F.pow(15 - F.col("recency_score"), 2)
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * archetype_config.rare_stability_weight
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
-    # NO_EOM: all zeros
+    # NO_EOM
+    reg, stab, rec = archetype_config.no_eom
     df = df.with_column(
         "dist_no_eom",
         F.sqrt(
-            F.pow(0 - F.col("regularity_score"), 2) + F.pow(50 - F.col("stability_score"), 2) + F.pow(0 - F.col("recency_score"), 2)
+            F.pow(reg - F.col("regularity_score"), 2) * w_reg
+            + F.pow(stab - F.col("stability_score"), 2) * w_stab
+            + F.pow(rec - F.col("recency_score"), 2) * w_rec
         ),
     )
 
@@ -151,15 +193,22 @@ def calculate_pattern_distances(df: DataFrame) -> DataFrame:
 
 
 @log_transformation
-def calculate_pattern_probabilities(df: DataFrame) -> DataFrame:
+def calculate_pattern_probabilities(df: DataFrame, archetype_config: ArchetypeConfig = None) -> DataFrame:
     """
     Step 7c: Convert distances to probabilities using softmax
+
+    Args:
+        df: Input DataFrame with pattern distances
+        archetype_config: Configuration for pattern archetypes
     """
     logger.debug("Converting distances to probabilities using softmax")
 
-    # Calculate softmax denominator (using temperature of 20.0 to match SQL)
+    if archetype_config is None:
+        archetype_config = ArchetypeConfig()
+
+    # Calculate softmax denominator (using configurable temperature)
     # Higher temperature = softer, less confident classifications
-    pattern_temperature = 20.0
+    pattern_temperature = archetype_config.pattern_temperature
     df = df.with_column(
         "softmax_denominator",
         F.exp(-F.col("dist_continuous_stable") / pattern_temperature)
@@ -235,17 +284,31 @@ def calculate_pattern_probabilities(df: DataFrame) -> DataFrame:
 
 
 @log_transformation
-def classify_eom_patterns(df: DataFrame) -> DataFrame:
+def classify_eom_patterns(
+    df: DataFrame,
+    archetype_config: ArchetypeConfig = None,
+    eom_high_risk_stability_threshold: float = 30.0,
+    eom_high_risk_concentration_threshold: float = 50.0,
+) -> DataFrame:
     """
     Step 7d: Final EOM pattern classification
+
+    Args:
+        df: Input DataFrame with pattern probabilities
+        archetype_config: Configuration for pattern archetypes
+        eom_high_risk_stability_threshold: Stability score threshold for high risk flag (lower = higher risk)
+        eom_high_risk_concentration_threshold: Concentration score threshold for high risk flag
     """
     logger.debug("Classifying final EOM patterns")
+
+    if archetype_config is None:
+        archetype_config = ArchetypeConfig()
 
     # Find primary classification (highest probability)
     df = df.with_column(
         "eom_pattern",
-        F.when(F.col("months_of_history") <= 3, "EMERGING")
-        .when((F.col("has_eom_history") == 0) & (F.col("months_of_history") >= 6), "NO_EOM")
+        F.when(F.col("months_of_history") <= archetype_config.emerging_months_threshold, "EMERGING")
+        .when((F.col("has_eom_history") == 0) & (F.col("months_of_history") >= archetype_config.no_eom_min_months), "NO_EOM")
         .otherwise(
             F.when(
                 F.greatest(
@@ -315,7 +378,9 @@ def classify_eom_patterns(df: DataFrame) -> DataFrame:
     df = df.with_column(
         "eom_pattern_confidence",
         F.greatest(
-            F.when((F.col("months_of_history") <= 3) | (F.col("has_eom_history") == 0), 1.0).otherwise(0),
+            F.when(
+                (F.col("months_of_history") <= archetype_config.emerging_months_threshold) | (F.col("has_eom_history") == 0), 1.0
+            ).otherwise(0),
             F.col("prob_continuous_stable"),
             F.col("prob_continuous_volatile"),
             F.col("prob_intermittent_active"),
@@ -340,13 +405,13 @@ def classify_eom_patterns(df: DataFrame) -> DataFrame:
         """),
     )
 
-    # High risk flag
+    # High risk flag for high-value volatile accounts
     df = df.with_column(
         "eom_high_risk_flag",
         F.when(
             (F.col("eom_importance_tier").isin(["CRITICAL", "HIGH"]))
-            & (F.col("stability_score") < 30)
-            & (F.col("concentration_score") >= 50),
+            & (F.col("stability_score") < eom_high_risk_stability_threshold)
+            & (F.col("concentration_score") >= eom_high_risk_concentration_threshold),
             1,
         ).otherwise(0),
     )

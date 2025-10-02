@@ -63,25 +63,33 @@ def calculate_rolling_features(
             F.sum("monthly_total").over(window_12m),
             F.avg("monthly_total").over(window_12m),
             F.max("max_monthly_transaction").over(window_12m),
+            # EOM metrics
             F.sum("eom_amount").over(window_12m),
             F.avg(F.when(F.col("eom_amount") > 0, F.col("eom_amount"))).over(window_12m),
             F.max("eom_amount").over(window_12m),
             F.stddev_pop("eom_amount").over(window_12m),
+            # Non-EOM metrics
             F.sum("non_eom_total").over(window_12m),
             F.avg("non_eom_total").over(window_12m),
+            # Frequency counts
             F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_12m),
             F.sum(F.when(F.col("eom_amount") == 0, 1).otherwise(0)).over(window_12m),
             F.sum(F.when(F.col("monthly_total") > 0, 1).otherwise(0)).over(window_12m),
+            # Volatility metrics
             F.stddev_pop("monthly_total").over(window_12m),
+            # Seasonality metrics
             F.sum("quarter_end_amount").over(window_12m),
             F.sum("year_end_amount").over(window_12m),
             F.avg("monthly_transactions").over(window_12m),
             F.stddev_pop("monthly_transactions").over(window_12m),
             F.avg("day_dispersion").over(window_12m),
+            # Total counts
             F.sum(F.when(F.col("eom_amount") > 0, 1).otherwise(0)).over(window_unbounded),
+            # Lagged values
             F.lag("eom_amount", 12).over(Window.partition_by("dim_value").order_by("month")),
             F.lag("eom_amount", 3).over(Window.partition_by("dim_value").order_by("month")),
             F.lag("eom_amount", 1).over(Window.partition_by("dim_value").order_by("month")),
+            # Moving averages
             F.avg("eom_amount").over(window_3m),
             F.row_number().over(Window.partition_by("dim_value").order_by("month")),
         ],
