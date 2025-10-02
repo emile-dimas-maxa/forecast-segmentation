@@ -36,6 +36,8 @@ def prepare_base_data(
         min_transactions: Minimum non-zero transactions to include series
     """
     # Filter by date range
+
+    df = df.select(["dim_value", "date", "amount", "is_last_work_day_of_month"])
     df = df.filter((F.col("date") >= F.lit(start_date)) & (F.col("date") <= F.coalesce(F.lit(end_date), F.current_date())))
 
     # Add month and quarter identifiers

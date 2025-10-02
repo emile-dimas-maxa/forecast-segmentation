@@ -6,8 +6,9 @@ Modular transformation functions for Snowpark DataFrames
 from loguru import logger
 from snowflake.snowpark import DataFrame, Session
 
-from src.segmentation.transformation.aggregation import apply_eom_clipping, create_monthly_aggregates
+from src.segmentation.transformation.aggregation import create_monthly_aggregates
 from src.segmentation.transformation.data_preparation import load_source_data, prepare_base_data
+from src.segmentation.transformation.eom_clipping import apply_eom_clipping
 from src.segmentation.transformation.eom_pattern_classification import (
     calculate_eom_smooth_scores,
     calculate_pattern_distances,
@@ -105,47 +106,6 @@ class SegmentationPipeline:
         target_forecast_month: str | None = None,
         filter_low_importance: bool = False,
     ) -> DataFrame:
-        """
-        Run the complete segmentation pipeline
-
-        Args:
-            session: Snowpark session
-            source_df: Optional source DataFrame. If not provided, reads from source_table
-            source_table: Source table name (required if source_df not provided)
-            start_date: Analysis start date
-            end_date: Analysis end date (None = current date)
-            min_months_history: Minimum months of history required
-            rolling_window_months: Rolling window for feature calculation
-            min_transactions: Minimum non-zero transactions to include series
-            ma_window_short: Short-term moving average window (months)
-            pre_eom_signal_window: Pre-EOM signal rolling window (months)
-            pre_eom_days: Days before EOM to consider for pre-EOM signals
-            early_month_days: First N days of month for early month signal
-            mid_month_end_day: End day for mid-month period
-            critical_volume_threshold: Critical overall volume (12 months)
-            high_volume_threshold: High overall volume (12 months)
-            medium_volume_threshold: Medium overall volume (12 months)
-            critical_monthly_avg_threshold: Critical monthly average
-            high_monthly_avg_threshold: High monthly average
-            medium_monthly_avg_threshold: Medium monthly average
-            critical_eom_threshold: Critical EOM volume (12 months)
-            high_eom_threshold: High EOM volume (12 months)
-            medium_eom_threshold: Medium EOM volume (12 months)
-            eom_concentration_threshold: EOM concentration threshold
-            eom_predictability_threshold: EOM predictability threshold
-            eom_frequency_threshold: EOM frequency threshold
-            eom_zero_ratio_threshold: EOM zero ratio threshold
-            eom_cv_threshold: EOM coefficient of variation threshold
-            monthly_cv_threshold: Monthly CV threshold
-            transaction_regularity_threshold: Transaction regularity threshold
-            activity_rate_threshold: Activity rate threshold
-            daily_amount_clip_threshold: Daily amount clipping threshold
-            target_forecast_month: Target forecast month to filter to
-            filter_low_importance: Whether to filter out low importance tiers
-
-        Returns:
-            Final segmented DataFrame
-        """
         logger.info("=" * 80)
         logger.info("Starting Full Segmentation Pipeline")
         logger.info(f"Configuration: start_date={start_date}, end_date={end_date}")
