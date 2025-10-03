@@ -1,10 +1,10 @@
 import warnings
 
+import numpy as np
 import pandas as pd
+from statsmodels.tsa.arima.model import ARIMA
 
 from src.forecast.models.base import BaseSegmentModel
-
-from statsmodels.tsa.arima.model import ARIMA
 
 
 class ARIMAModel(BaseSegmentModel):
@@ -77,7 +77,19 @@ class ARIMAModel(BaseSegmentModel):
                     result = pd.concat([result, last_row], ignore_index=True)
 
             result = result.iloc[-steps:].copy()
-            result["prediction"] = forecast.values if hasattr(forecast, "values") else forecast
+            # Handle both scalar and array forecasts
+            if hasattr(forecast, "values"):
+                forecast_values = forecast.values
+                if forecast_values.ndim == 0:  # 0-dimensional array (scalar)
+                    forecast_values = [forecast_values.item()]
+                elif forecast_values.ndim == 1 and len(forecast_values) == 1 and steps > 1:
+                    # Repeat single value for multiple steps
+                    forecast_values = [forecast_values[0]] * steps
+            else:
+                # Handle scalar values
+                forecast_values = [forecast] * steps if np.isscalar(forecast) else forecast
+
+            result["prediction"] = forecast_values
             results.append(result)
         else:
             # Multiple time series predictions
@@ -104,7 +116,19 @@ class ARIMAModel(BaseSegmentModel):
                             result = pd.concat([result, last_row], ignore_index=True)
 
                     result = result.iloc[-steps:].copy()
-                    result["prediction"] = forecast.values if hasattr(forecast, "values") else forecast
+                    # Handle both scalar and array forecasts
+                    if hasattr(forecast, "values"):
+                        forecast_values = forecast.values
+                        if forecast_values.ndim == 0:  # 0-dimensional array (scalar)
+                            forecast_values = [forecast_values.item()]
+                        elif forecast_values.ndim == 1 and len(forecast_values) == 1 and steps > 1:
+                            # Repeat single value for multiple steps
+                            forecast_values = [forecast_values[0]] * steps
+                    else:
+                        # Handle scalar values
+                        forecast_values = [forecast] * steps if np.isscalar(forecast) else forecast
+
+                    result["prediction"] = forecast_values
 
                     # Ensure dimension columns are preserved
                     for i, dim_col in enumerate(self.dimensions):

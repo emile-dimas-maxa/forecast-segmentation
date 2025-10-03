@@ -1,3 +1,5 @@
+from collections import defaultdict, deque
+
 import numpy as np
 import pandas as pd
 
@@ -5,111 +7,92 @@ from src.forecast.models.base import BaseSegmentModel
 
 
 class MovingAverageModel(BaseSegmentModel):
-    """Moving average model implementation."""
+    """Efficient moving average model with historical data storage."""
 
     def __init__(self, window: int = 3):
         self.window = window
-        self.last_values = {}  # Store last values for each dimension combination
-        self.dimensions = None
-        self.target_col = None
+        self.dimensions: list[str] | None = None
+        self.target_col: str | None = None
+        self.historical_data: dict[tuple, deque] = defaultdict(lambda: deque(maxlen=self.window))
+        self.is_fitted = False
 
     def fit(self, data: pd.DataFrame, target_col: str = "target", dimensions: list[str] = None) -> "MovingAverageModel":
-        """Fit moving average model (store last values)."""
+        """Fit model by storing the last window values for each dimension group."""
         self.target_col = target_col
         self.dimensions = dimensions or []
-        self.last_values = {}
+        self.historical_data.clear()
 
+        # Store historical data efficiently
         if not self.dimensions:
-            # Treat all data as one time series
-            y = data[target_col].dropna()
-            self.last_values["__all__"] = y.tail(self.window).values
+            # Single time series
+            values = data[target_col].dropna()
+            if len(values) >= self.window:
+                self.historical_data[tuple()] = deque(values.tail(self.window), maxlen=self.window)
         else:
-            # Store last values for each dimension combination
-            for dim_values, group_data in data.groupby(self.dimensions):
-                # Convert single value to tuple for consistency
-                if not isinstance(dim_values, tuple):
-                    dim_values = (dim_values,)
+            # Multiple time series - store last window values per group
+            for group_key, group in data.groupby(self.dimensions):
+                values = group[target_col].dropna()
+                if len(values) >= self.window:
+                    key = group_key if isinstance(group_key, tuple) else (group_key,)
+                    self.historical_data[key] = deque(values.tail(self.window), maxlen=self.window)
 
-                y = group_data[target_col].dropna()
-                if len(y) > 0:  # Only store if we have data
-                    self.last_values[dim_values] = y.tail(self.window).values
-
+        self.is_fitted = True
         return self
 
     def predict(self, data: pd.DataFrame, steps: int = 1) -> pd.DataFrame:
-        """Generate moving average predictions."""
-        if not self.last_values:
+        """Generate predictions using stored historical data."""
+        if not self.is_fitted:
             raise ValueError("Model must be fitted before prediction")
 
-        results = []
+        def _create_prediction_rows(template_row: pd.Series, prediction: float, steps: int) -> pd.DataFrame:
+            """Create prediction rows efficiently."""
+            result = pd.DataFrame([template_row] * steps)
+            result["prediction"] = prediction
+            return result
+
+        def _predict_group(group: pd.DataFrame, group_key: tuple = tuple()) -> pd.DataFrame:
+            """Generate predictions for a group using stored historical data."""
+            stored_values = self.historical_data.get(group_key)
+
+            # Use np.nan if insufficient historical data
+            if not stored_values or len(stored_values) < self.window:
+                prediction = np.nan
+            else:
+                prediction = sum(stored_values) / len(stored_values)
+
+            template_row = group.iloc[-1] if not group.empty else pd.Series()
+            return _create_prediction_rows(template_row, prediction, steps)
 
         if not self.dimensions:
-            # Single time series prediction
-            last_vals = self.last_values.get("__all__")
-            if last_vals is None:
-                raise ValueError("Model was not successfully fitted")
-
-            predictions = []
-            current_values = last_vals.copy()
-
-            for _ in range(steps):
-                pred = np.mean(current_values)
-                predictions.append(pred)
-                # Update rolling window
-                current_values = np.append(current_values[1:], pred)
-
-            # Create result DataFrame
-            result = data.iloc[-steps:].copy() if len(data) >= steps else data.copy()
-            if len(result) < steps:
-                # Extend with NaN rows if needed
-                additional_rows = steps - len(result)
-                last_row = result.iloc[-1:] if len(result) > 0 else pd.DataFrame([{}] * 1, columns=data.columns)
-                for _ in range(additional_rows):
-                    result = pd.concat([result, last_row], ignore_index=True)
-
-            result = result.iloc[-steps:].copy()
-            result["prediction"] = predictions
-            results.append(result)
+            # Single time series
+            result = _predict_group(data)
         else:
-            # Multiple time series predictions
-            for dim_values, group_data in data.groupby(self.dimensions):
-                # Convert single value to tuple for consistency
-                if not isinstance(dim_values, tuple):
-                    dim_values = (dim_values,)
+            # Multiple time series
+            results = []
+            for group_key, group in data.groupby(self.dimensions):
+                key = group_key if isinstance(group_key, tuple) else (group_key,)
+                group_result = _predict_group(group, key)
+                if not group_result.empty:
+                    results.append(group_result)
 
-                last_vals = self.last_values.get(dim_values)
-                if last_vals is None:
-                    print(f"Warning: No fitted values for dimensions {dim_values}, skipping prediction")
-                    continue
+            result = pd.concat(results, ignore_index=True) if results else pd.DataFrame()
 
-                predictions = []
-                current_values = last_vals.copy()
+        return result
 
-                for _ in range(steps):
-                    pred = np.mean(current_values)
-                    predictions.append(pred)
-                    # Update rolling window
-                    current_values = np.append(current_values[1:], pred)
+    def update_historical_data(self, new_data: pd.DataFrame) -> None:
+        """Update stored historical data with new observations."""
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted before updating historical data")
 
-                # Create result DataFrame
-                result = group_data.iloc[-steps:].copy() if len(group_data) >= steps else group_data.copy()
-                if len(result) < steps:
-                    # Extend with NaN rows if needed
-                    additional_rows = steps - len(result)
-                    last_row = result.iloc[-1:] if len(result) > 0 else pd.DataFrame([{}] * 1, columns=group_data.columns)
-                    for _ in range(additional_rows):
-                        result = pd.concat([result, last_row], ignore_index=True)
-
-                result = result.iloc[-steps:].copy()
-                result["prediction"] = predictions
-
-                # Ensure dimension columns are preserved
-                for i, dim_col in enumerate(self.dimensions):
-                    result[dim_col] = dim_values[i] if len(dim_values) > i else dim_values[0]
-
-                results.append(result)
-
-        if not results:
-            raise ValueError("No successful predictions were generated")
-
-        return pd.concat(results, ignore_index=True)
+        if not self.dimensions:
+            # Single time series
+            values = new_data[self.target_col].dropna()
+            for value in values:
+                self.historical_data[tuple()].append(value)
+        else:
+            # Multiple time series
+            for group_key, group in new_data.groupby(self.dimensions):
+                key = group_key if isinstance(group_key, tuple) else (group_key,)
+                values = group[self.target_col].dropna()
+                for value in values:
+                    self.historical_data[key].append(value)

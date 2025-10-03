@@ -1,11 +1,10 @@
-import numpy as np
 import pandas as pd
 
 from src.forecast.models.base import BaseSegmentModel
 
 
 class NullModel(BaseSegmentModel):
-    """Null model implementation that always forecasts NaN/null values."""
+    """Null model implementation that always forecasts zero values."""
 
     def __init__(self):
         """Initialize the null model."""
@@ -31,14 +30,14 @@ class NullModel(BaseSegmentModel):
 
     def predict(self, data: pd.DataFrame, steps: int = 1) -> pd.DataFrame:
         """
-        Generate null predictions (always returns NaN).
+        Generate null predictions (always returns 0).
 
         Args:
             data: DataFrame with input data
             steps: Number of steps to forecast
 
         Returns:
-            DataFrame with NaN predictions for each time series
+            DataFrame with zero predictions for each time series
         """
         if not self.is_fitted:
             raise ValueError("Model must be fitted before prediction")
@@ -49,14 +48,14 @@ class NullModel(BaseSegmentModel):
             # Single time series prediction
             result = data.iloc[-steps:].copy() if len(data) >= steps else data.copy()
             if len(result) < steps:
-                # Extend with NaN rows if needed
+                # Extend with additional rows if needed
                 additional_rows = steps - len(result)
                 last_row = result.iloc[-1:] if len(result) > 0 else pd.DataFrame([{}] * 1, columns=data.columns)
                 for _ in range(additional_rows):
                     result = pd.concat([result, last_row], ignore_index=True)
 
             result = result.iloc[-steps:].copy()
-            result["prediction"] = np.nan  # Always predict NaN
+            result["prediction"] = 0.0  # Always predict zero
             results.append(result)
         else:
             # Multiple time series predictions
@@ -68,14 +67,14 @@ class NullModel(BaseSegmentModel):
                 # Create result DataFrame
                 result = group_data.iloc[-steps:].copy() if len(group_data) >= steps else group_data.copy()
                 if len(result) < steps:
-                    # Extend with NaN rows if needed
+                    # Extend with additional rows if needed
                     additional_rows = steps - len(result)
                     last_row = result.iloc[-1:] if len(result) > 0 else pd.DataFrame([{}] * 1, columns=group_data.columns)
                     for _ in range(additional_rows):
                         result = pd.concat([result, last_row], ignore_index=True)
 
                 result = result.iloc[-steps:].copy()
-                result["prediction"] = np.nan  # Always predict NaN
+                result["prediction"] = 0.0  # Always predict zero
 
                 # Ensure dimension columns are preserved
                 for i, dim_col in enumerate(self.dimensions):

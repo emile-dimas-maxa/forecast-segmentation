@@ -10,7 +10,7 @@ def create_example_config():
         "model_mapping": {
             "segment_1": {"type": "arima", "params": {"order": (2, 1, 1)}},
             "segment_2": {"type": "moving_average", "params": {"window": 5}},
-            "segment_3": {"type": "null", "params": {}},  # Always forecast null/NaN
+            "segment_3": {"type": "null", "params": {}},  # Always forecast zero
         },
         "fallback_model": {"type": "moving_average", "params": {"window": 3}},
     }

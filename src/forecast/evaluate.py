@@ -2,11 +2,10 @@
 
 import numpy as np
 import pandas as pd
-
 from sklearn.metrics import (
     mean_absolute_error,
-    mean_squared_error,
     mean_absolute_percentage_error,
+    mean_squared_error,
     r2_score,
 )
 
@@ -108,45 +107,252 @@ def evaluate_forecast(
     segment_col: str = "segmentation",
 ) -> pd.DataFrame:
     """
-    Prepare data for evaluation.
+    Evaluate forecast by calculating metrics for each segment and direction combination.
+    """
+    df = data.copy()
+    df["direction"] = df[dim_values_col].str.contains("::IN").map({True: "CREDIT", False: "DEBIT"})
+
+    results = []
+
+    # Calculate metrics for each segment-direction combination
+    for segment in df[segment_col].unique():
+        segment_data = df[df[segment_col] == segment]
+
+        for direction in ["CREDIT", "DEBIT"]:
+            direction_data = segment_data[segment_data["direction"] == direction]
+            if len(direction_data) > 0:
+                metrics = calculate_regression_metrics(direction_data[actual_col], direction_data[prediction_col])
+                metrics.update({segment_col: segment, "direction": direction})
+                results.append(metrics)
+
+        # Calculate NET metrics (CREDIT - DEBIT) for each segment
+        if len(segment_data) > 0:
+            # Create net values by subtracting DEBIT from CREDIT for each data point
+            segment_pivot = segment_data.pivot_table(
+                index=segment_data.index, columns="direction", values=[actual_col, prediction_col], fill_value=0
+            )
+
+            if "CREDIT" in segment_pivot.columns.get_level_values(1) and "DEBIT" in segment_pivot.columns.get_level_values(1):
+                net_actual = segment_pivot[(actual_col, "CREDIT")] - segment_pivot[(actual_col, "DEBIT")]
+                net_pred = segment_pivot[(prediction_col, "CREDIT")] - segment_pivot[(prediction_col, "DEBIT")]
+
+                # Only calculate if we have non-zero net values
+                if len(net_actual.dropna()) > 0:
+                    metrics = calculate_regression_metrics(net_actual, net_pred)
+                    metrics.update({segment_col: segment, "direction": "NET"})
+                    results.append(metrics)
+
+    # Calculate overall metrics
+    for direction in ["CREDIT", "DEBIT"]:
+        direction_data = df[df["direction"] == direction]
+        if len(direction_data) > 0:
+            metrics = calculate_regression_metrics(direction_data[actual_col], direction_data[prediction_col])
+            metrics.update({segment_col: "OVERALL", "direction": direction})
+            results.append(metrics)
+
+    # Calculate overall NET metrics
+    if len(df) > 0:
+        overall_pivot = df.pivot_table(index=df.index, columns="direction", values=[actual_col, prediction_col], fill_value=0)
+
+        if "CREDIT" in overall_pivot.columns.get_level_values(1) and "DEBIT" in overall_pivot.columns.get_level_values(1):
+            net_actual = overall_pivot[(actual_col, "CREDIT")] - overall_pivot[(actual_col, "DEBIT")]
+            net_pred = overall_pivot[(prediction_col, "CREDIT")] - overall_pivot[(prediction_col, "DEBIT")]
+
+            if len(net_actual.dropna()) > 0:
+                metrics = calculate_regression_metrics(net_actual, net_pred)
+                metrics.update({segment_col: "OVERALL", "direction": "NET"})
+                results.append(metrics)
+
+    return pd.DataFrame(results)
+
+
+def evaluate_forecast_simple(
+    data: pd.DataFrame,
+    dim_values_col: str = "dim_value",
+    actual_col: str = "actual",
+    prediction_col: str = "prediction",
+    segment_col: str = "segmentation",
+    date_col: str = "forecast_month",
+) -> pd.DataFrame:
+    """
+    Simplified evaluation that computes credit/debit/net totals by segment, date, and overall.
+
+    Returns a clean table with levels (segment-date, segment-average, overall-date, overall-average),
+    directions (credit/debit/net), actual totals, forecast totals, and absolute net error.
     """
     df = data.copy()
 
-    cols = [segment_col, "direction", actual_col, prediction_col]
-
+    # Classify direction based on dim_value
     df["direction"] = df[dim_values_col].str.contains("::IN").map({True: "CREDIT", False: "DEBIT"})
 
-    df_segment_direction = df.groupby([segment_col, "direction"]).agg({actual_col: "sum", prediction_col: "sum"}).reset_index()
-    df_segment_net = (
-        df_segment_direction.groupby(segment_col)
-        .agg(
-            {
-                "actual": lambda x: x[x == "CREDIT"].sum() - x[x == "DEBIT"].sum(),
-                "prediction": lambda x: x[x == "CREDIT"].sum() - x[x == "DEBIT"].sum(),
-            }
-        )
-        .reset_index()
-        .assign(direction="NET")
-    )
+    results = []
 
-    df_overall_direction = (
-        df.groupby("direction").agg({actual_col: "sum", prediction_col: "sum"}).reset_index().assign(**{segment_col: "OVERALL"})
-    )
-    df_overall_net = (
-        df_overall_direction.groupby([segment_col, "direction"])
-        .agg(
-            {
-                actual_col: lambda x: x[x == "CREDIT"].sum() - x[x == "DEBIT"].sum(),
-                prediction_col: lambda x: x[x == "CREDIT"].sum() - x[x == "DEBIT"].sum(),
-            }
-        )
-        .reset_index()
-        .assign(direction="NET")
-    )
+    # 1. SEGMENT-DATE LEVEL: Process each segment-date combination
+    for segment in df[segment_col].unique():
+        segment_data = df[df[segment_col] == segment]
 
-    return pd.concat([df_segment_direction[cols], df_segment_net[cols], df_overall_direction[cols], df_overall_net[cols]]).apply(
-        lambda x: calculate_regression_metrics(x[actual_col], x[prediction_col]), axis=1
-    )
+        for date in segment_data[date_col].unique():
+            date_data = segment_data[segment_data[date_col] == date]
+
+            # Calculate totals by direction for this segment-date
+            date_totals = date_data.groupby("direction").agg({actual_col: "sum", prediction_col: "sum"}).reset_index()
+
+            # Add segment and date info
+            date_totals["level"] = f"{segment}_{date}"
+            date_totals["level_type"] = "segment_date"
+            date_totals["segment"] = segment
+            date_totals["date"] = date
+
+            # Rename columns for clarity
+            date_totals = date_totals.rename(columns={actual_col: "actual_total", prediction_col: "forecast_total"})
+
+            results.append(date_totals)
+
+            # Calculate NET for this segment-date
+            credit_row = date_totals[date_totals["direction"] == "CREDIT"]
+            debit_row = date_totals[date_totals["direction"] == "DEBIT"]
+
+            if len(credit_row) > 0 and len(debit_row) > 0:
+                net_actual = credit_row["actual_total"].iloc[0] - debit_row["actual_total"].iloc[0]
+                net_forecast = credit_row["forecast_total"].iloc[0] - debit_row["forecast_total"].iloc[0]
+            elif len(credit_row) > 0:
+                net_actual = credit_row["actual_total"].iloc[0]
+                net_forecast = credit_row["forecast_total"].iloc[0]
+            elif len(debit_row) > 0:
+                net_actual = -debit_row["actual_total"].iloc[0]
+                net_forecast = -debit_row["forecast_total"].iloc[0]
+            else:
+                net_actual = 0
+                net_forecast = 0
+
+            net_row = pd.DataFrame(
+                [
+                    {
+                        "level": f"{segment}_{date}",
+                        "level_type": "segment_date",
+                        "segment": segment,
+                        "date": date,
+                        "direction": "NET",
+                        "actual_total": net_actual,
+                        "forecast_total": net_forecast,
+                    }
+                ]
+            )
+            results.append(net_row)
+
+    # 2. OVERALL-DATE LEVEL: Process each date across all segments
+    for date in df[date_col].unique():
+        date_data = df[df[date_col] == date]
+
+        # Calculate totals by direction for this date
+        date_totals = date_data.groupby("direction").agg({actual_col: "sum", prediction_col: "sum"}).reset_index()
+
+        # Add date info
+        date_totals["level"] = f"OVERALL_{date}"
+        date_totals["level_type"] = "overall_date"
+        date_totals["segment"] = "OVERALL"
+        date_totals["date"] = date
+
+        # Rename columns for clarity
+        date_totals = date_totals.rename(columns={actual_col: "actual_total", prediction_col: "forecast_total"})
+
+        results.append(date_totals)
+
+        # Calculate NET for this date
+        credit_row = date_totals[date_totals["direction"] == "CREDIT"]
+        debit_row = date_totals[date_totals["direction"] == "DEBIT"]
+
+        if len(credit_row) > 0 and len(debit_row) > 0:
+            net_actual = credit_row["actual_total"].iloc[0] - debit_row["actual_total"].iloc[0]
+            net_forecast = credit_row["forecast_total"].iloc[0] - debit_row["forecast_total"].iloc[0]
+        elif len(credit_row) > 0:
+            net_actual = credit_row["actual_total"].iloc[0]
+            net_forecast = credit_row["forecast_total"].iloc[0]
+        elif len(debit_row) > 0:
+            net_actual = -debit_row["actual_total"].iloc[0]
+            net_forecast = -debit_row["forecast_total"].iloc[0]
+        else:
+            net_actual = 0
+            net_forecast = 0
+
+        net_row = pd.DataFrame(
+            [
+                {
+                    "level": f"OVERALL_{date}",
+                    "level_type": "overall_date",
+                    "segment": "OVERALL",
+                    "date": date,
+                    "direction": "NET",
+                    "actual_total": net_actual,
+                    "forecast_total": net_forecast,
+                }
+            ]
+        )
+        results.append(net_row)
+
+    # Combine all date-level results
+    date_level_df = pd.concat(results, ignore_index=True)
+    date_level_df["abs_net_error"] = abs(date_level_df["actual_total"] - date_level_df["forecast_total"])
+
+    # 3. SEGMENT-AVERAGE LEVEL: Average errors across dates for each segment
+    segment_avg_results = []
+    for segment in df[segment_col].unique():
+        segment_date_data = date_level_df[(date_level_df["segment"] == segment) & (date_level_df["level_type"] == "segment_date")]
+
+        for direction in ["CREDIT", "DEBIT", "NET"]:
+            direction_data = segment_date_data[segment_date_data["direction"] == direction]
+            if len(direction_data) > 0:
+                avg_abs_error = direction_data["abs_net_error"].mean()
+                total_actual = direction_data["actual_total"].sum()
+                total_forecast = direction_data["forecast_total"].sum()
+
+                segment_avg_results.append(
+                    {
+                        "level": f"{segment}_AVG",
+                        "level_type": "segment_average",
+                        "segment": segment,
+                        "date": "AVERAGE",
+                        "direction": direction,
+                        "actual_total": total_actual,
+                        "forecast_total": total_forecast,
+                        "abs_net_error": avg_abs_error,
+                    }
+                )
+
+    # 4. OVERALL-AVERAGE LEVEL: Average errors across dates for overall
+    overall_avg_results = []
+    overall_date_data = date_level_df[date_level_df["level_type"] == "overall_date"]
+
+    for direction in ["CREDIT", "DEBIT", "NET"]:
+        direction_data = overall_date_data[overall_date_data["direction"] == direction]
+        if len(direction_data) > 0:
+            avg_abs_error = direction_data["abs_net_error"].mean()
+            total_actual = direction_data["actual_total"].sum()
+            total_forecast = direction_data["forecast_total"].sum()
+
+            overall_avg_results.append(
+                {
+                    "level": "OVERALL_AVG",
+                    "level_type": "overall_average",
+                    "segment": "OVERALL",
+                    "date": "AVERAGE",
+                    "direction": direction,
+                    "actual_total": total_actual,
+                    "forecast_total": total_forecast,
+                    "abs_net_error": avg_abs_error,
+                }
+            )
+
+    # Combine all results
+    avg_df = pd.concat([pd.DataFrame(segment_avg_results), pd.DataFrame(overall_avg_results)], ignore_index=True)
+
+    # Combine date-level and average-level results
+    final_df = pd.concat([date_level_df, avg_df], ignore_index=True)
+
+    # Reorder columns for clarity
+    final_df = final_df[["level", "level_type", "segment", "date", "direction", "actual_total", "forecast_total", "abs_net_error"]]
+
+    return final_df
 
 
 def print_evaluation_summary(evaluation_df: pd.DataFrame) -> None:
