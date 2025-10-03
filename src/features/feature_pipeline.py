@@ -52,118 +52,17 @@ def create_aggregated_features(
     if keep_individual_overall_tiers is None:
         keep_individual_overall_tiers = ["CRITICAL"]
 
-    original_columns = [
-        "dim_value",
-        "forecast_month",
-        "year",
-        "month_num",
-        "target_eom_amount",
-        "overall_importance_tier",
-        "eom_importance_tier",
-        "overall_importance_score",
-        "eom_importance_score",
-        "eom_risk_flag",
-        "has_eom_history",
-        "eom_regularity_score",
-        "eom_stability_score",
-        "eom_recency_score",
-        "eom_concentration_score",
-        "eom_volume_score",
-        "eom_pattern_primary",
-        "eom_pattern_confidence_pct",
-        "prob_continuous_stable_pct",
-        "prob_continuous_volatile_pct",
-        "prob_intermittent_active_pct",
-        "prob_intermittent_dormant_pct",
-        "prob_rare_recent_pct",
-        "prob_rare_stale_pct",
-        "pattern_uncertainty",
-        "general_pattern",
-        "segment_name",
-        "full_segment_name",
-        "combined_priority",
-        "recommended_method",
-        "forecast_complexity",
-        "total_volume_12m",
-        "eom_volume_12m",
-        "non_eom_volume_12m",
-        "avg_monthly_volume",
-        "max_transaction",
-        "max_eom_transaction",
-        "eom_concentration",
-        "eom_predictability",
-        "eom_frequency",
-        "eom_zero_ratio",
-        "eom_cv",
-        "monthly_cv",
-        "transaction_regularity",
-        "activity_rate",
-        "transaction_dispersion",
-        "quarter_end_concentration",
-        "year_end_concentration",
-        "active_months_12m",
-        "total_nonzero_eom_count",
-        "months_inactive",
-        "months_of_history",
-        "cumulative_overall_portfolio_pct",
-        "cumulative_eom_portfolio_pct",
-        "lag_1m_eom",
-        "lag_3m_eom",
-        "lag_12m_eom",
-        "eom_ma3",
-        "eom_yoy_growth",
-        "eom_mom_growth",
-        "is_quarter_end",
-        "is_year_end",
-        "month_of_year",
-        "is_zero_eom",
-        "current_month_has_eom",
-        "raw_rf__active_months_12m",
-        "raw_rf__rolling_avg_day_dispersion",
-        "raw_rf__rolling_avg_monthly_volume",
-        "raw_rf__rolling_avg_non_eom",
-        "raw_rf__rolling_avg_nonzero_eom",
-        "raw_rf__rolling_avg_transactions",
-        "raw_rf__rolling_eom_volume_12m",
-        "raw_rf__rolling_max_eom",
-        "raw_rf__rolling_max_transaction",
-        "raw_rf__rolling_non_eom_volume_12m",
-        "raw_rf__rolling_nonzero_eom_months",
-        "raw_rf__rolling_quarter_end_volume",
-        "raw_rf__rolling_std_eom",
-        "raw_rf__rolling_std_monthly",
-        "raw_rf__rolling_std_transactions",
-        "raw_rf__rolling_total_volume_12m",
-        "raw_rf__rolling_year_end_volume",
-        "raw_rf__rolling_zero_eom_months",
-        "raw_rf__total_nonzero_eom_count",
-        "raw_rf__eom_amount_12m_ago",
-        "raw_rf__eom_amount_3m_ago",
-        "raw_rf__eom_amount_1m_ago",
-        "raw_rf__eom_ma3",
-        "raw_rf__months_of_history",
-        "raw_rf__months_since_last_eom",
-        "raw_pm__eom_concentration",
-        "raw_pm__eom_predictability",
-        "raw_pm__eom_frequency",
-        "raw_pm__eom_zero_ratio",
-        "raw_pm__eom_spike_ratio",
-        "raw_pm__eom_cv",
-        "raw_pm__monthly_cv",
-        "raw_pm__transaction_regularity",
-        "raw_pm__activity_rate",
-        "raw_pm__quarter_end_concentration",
-        "raw_pm__year_end_concentration",
-        "raw_pm__transaction_dispersion",
-        "raw_pm__has_eom_history",
-        "raw_pm__months_inactive",
-        "raw_pm__eom_periodicity",
-    ]
+    # Get the actual column names from the DataFrame (they are uppercase)
+    actual_columns = df.columns
+    logger.debug(f"Actual DataFrame columns: {actual_columns}")
+
+    # Use the actual column names from the DataFrame
+    original_columns = actual_columns
 
     # Step 1: Select date
     mapping_forecast_month = (
         forecast_month
-        or (df.select(F.max("forecast_month").alias("latest_month")).to_pandas().rename(columns=str.lower).iloc[0]["latest_month"])
+        or (df.select(F.max("FORECAST_MONTH").alias("latest_month")).to_pandas().rename(columns=str.lower).iloc[0]["latest_month"])
     )
 
     log_str = (
@@ -176,91 +75,113 @@ def create_aggregated_features(
 
     # Step 2: Create mapping
     mapping_df = (
-        df.filter(F.col("forecast_month") == mapping_forecast_month)
-        .select("dim_value", "eom_importance_tier", "overall_importance_tier")
+        df.filter(F.col("FORECAST_MONTH") == mapping_forecast_month)
+        .select("DIM_VALUE", "EOM_IMPORTANCE_TIER", "OVERALL_IMPORTANCE_TIER")
         .distinct()
     )
 
     mapping_df = mapping_df.with_column(
         "should_aggregate",
         F.when(
-            (F.col("eom_importance_tier").isin(keep_individual_eom_tiers))
-            | (F.col("overall_importance_tier").isin(keep_individual_overall_tiers)),
+            (F.col("EOM_IMPORTANCE_TIER").isin(keep_individual_eom_tiers))
+            | (F.col("OVERALL_IMPORTANCE_TIER").isin(keep_individual_overall_tiers)),
             F.lit(False),
         ).otherwise(F.lit(True)),
     )
 
     # Step 3: Apply the mapping
-    df = df.join(mapping_df.select("dim_value", "should_aggregate"), on="dim_value", how="left")
+    df = df.join(mapping_df.select("DIM_VALUE", "should_aggregate"), on="DIM_VALUE", how="left")
 
     # Step 3: Create the aggregated dim_value
     df = df.with_column(
         "aggregated_dim_value",
         F.when(
             ~F.col("should_aggregate"),
-            F.col("dim_value"),
+            F.col("DIM_VALUE"),
         )
         .when(
-            F.col("dim_value").like(f"%{others_in_suffix}"),
+            F.col("DIM_VALUE").like(f"%{others_in_suffix}"),
             F.concat(F.lit(aggregated_in_name)),
         )
         .otherwise(F.concat(F.lit(aggregated_out_name))),
     )
 
-    # Step 4: Group by forecast_month and aggregated_dim_value
-    logger.debug("Grouping data by forecast_month and aggregated_dim_value")
+    # Step 4: Group by FORECAST_MONTH and aggregated_dim_value
+    logger.debug("Grouping data by FORECAST_MONTH and aggregated_dim_value")
 
     # Split processing: individual dim_values vs aggregated "others"
     individual_df = df.filter(~F.col("should_aggregate"))
     others_df = df.filter(F.col("should_aggregate"))
 
     # Process individual dim_values (keep all original values unchanged)
-    individual_aggregated = individual_df.select(original_columns)
+    # Apply identical type casting as others DataFrame for successful union
+    individual_aggregated = individual_df.select(
+        *original_columns,
+    )
     logger.info(f"Created {individual_aggregated.count()} individual aggregated rows")
 
     # Process "others" categories (only sum specific fields, nulls for rest)
-    others_aggregated = (
-        others_df.with_column("dim_value", F.col("aggregated_dim_value"))
-        .group_by(["forecast_month", "dim_value"])
+    # Aggregate the data first
+    others_aggregated_data = (
+        others_df.with_column("DIM_VALUE", F.col("aggregated_dim_value"))
+        .group_by(["FORECAST_MONTH", "DIM_VALUE"])
         .agg(
             # Core identifiers (take first/max as they should be consistent within group)
-            F.max("year").alias("year"),
-            F.max("month_num").alias("month_num"),
-            F.max("month_of_year").alias("month_of_year"),
-            F.max("is_quarter_end").alias("is_quarter_end"),
-            F.max("is_year_end").alias("is_year_end"),
+            F.max("YEAR").alias("agg_year"),
+            F.max("MONTH_NUM").alias("agg_month_num"),
+            F.max("MONTH_OF_YEAR").alias("agg_month_of_year"),
+            F.max("IS_QUARTER_END").alias("agg_is_quarter_end"),
+            F.max("IS_YEAR_END").alias("agg_is_year_end"),
             # Target variable - SUM of amounts (main aggregation)
-            F.sum("target_eom_amount").alias("target_eom_amount"),
+            F.sum("TARGET_EOM_AMOUNT").alias("agg_target_eom_amount"),
             # Portfolio percentiles - SUM (as requested)
-            F.sum("cumulative_overall_portfolio_pct").alias("cumulative_overall_portfolio_pct"),
-            F.sum("cumulative_eom_portfolio_pct").alias("cumulative_eom_portfolio_pct"),
-            # Special EOM pattern label for aggregated others
-            F.lit("AGGREGATED_OTHERS").alias("eom_pattern_primary"),
-            # Set all other feature columns to NULL
-            *[
-                F.lit(None).alias(col)
-                for col in original_columns
-                if col
-                not in [
-                    "dim_value",
-                    "forecast_month",
-                    "year",
-                    "month_num",
-                    "month_of_year",
-                    "is_quarter_end",
-                    "is_year_end",
-                    "target_eom_amount",
-                    "cumulative_overall_portfolio_pct",
-                    "cumulative_eom_portfolio_pct",
-                    "eom_pattern_primary",
-                ]
-            ],
+            F.sum("CUMULATIVE_OVERALL_PORTFOLIO_PCT").alias("agg_cumulative_overall_portfolio_pct"),
+            F.sum("CUMULATIVE_EOM_PORTFOLIO_PCT").alias("agg_cumulative_eom_portfolio_pct"),
         )
     )
 
+    # Now create others_aggregated with exact same column structure as individual DataFrame
+    # Create a mapping of original column names to their aggregated equivalents or null values
+    column_mappings = {}
+
+    for col in original_columns:
+        if col == "DIM_VALUE":
+            column_mappings[col] = F.col("DIM_VALUE")
+        elif col == "FORECAST_MONTH":
+            column_mappings[col] = F.col("FORECAST_MONTH")
+        elif col == "YEAR":
+            column_mappings[col] = F.col("agg_year")
+        elif col == "MONTH_NUM":
+            column_mappings[col] = F.col("agg_month_num")
+        elif col == "MONTH_OF_YEAR":
+            column_mappings[col] = F.col("agg_month_of_year")
+        elif col == "IS_QUARTER_END":
+            column_mappings[col] = F.col("agg_is_quarter_end")
+        elif col == "IS_YEAR_END":
+            column_mappings[col] = F.col("agg_is_year_end")
+        elif col == "TARGET_EOM_AMOUNT":
+            column_mappings[col] = F.col("agg_target_eom_amount")
+        elif col == "CUMULATIVE_OVERALL_PORTFOLIO_PCT":
+            column_mappings[col] = F.col("agg_cumulative_overall_portfolio_pct")
+        elif col == "CUMULATIVE_EOM_PORTFOLIO_PCT":
+            column_mappings[col] = F.col("agg_cumulative_eom_portfolio_pct")
+        elif col == "EOM_PATTERN_PRIMARY":
+            column_mappings[col] = F.lit("AGGREGATED_OTHERS")
+        else:
+            # Set all other columns to NULL
+            column_mappings[col] = F.lit(None)
+
+    # Create the select statement
+    others_aggregated = others_aggregated_data.select(*[column_mappings[col].alias(col) for col in original_columns])
+
+    logger.info("Columns in the non aggregated dataframe:")
+    logger.info(individual_aggregated.columns)
+    logger.info("Columns in the aggregated dataframe:")
+    logger.info(others_aggregated.columns)
+
     logger.info(f"Created {others_aggregated.count()} others aggregated rows")
     logger.info("Unioning individual and others aggregated rows")
-    df = individual_aggregated.union(others_aggregated)
+    df = individual_aggregated.select(*original_columns).union(others_aggregated.select(*original_columns))
     logger.info(f"Created aggregated features from segmentation output with {df.count()} rows")
     return df
 

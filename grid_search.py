@@ -542,18 +542,6 @@ def run_grid_search(config: GridSearchConfig) -> dict:
     return results
 
 
-# Backward compatibility wrapper (optional)
-class SegmentedModelGridSearch:
-    """Backward compatibility wrapper for the functional grid search"""
-
-    def __init__(self, config: GridSearchConfig):
-        self.config = config
-
-    def run(self) -> dict:
-        """Run grid search using functional approach"""
-        return run_grid_search(self.config)
-
-
 def main():
     """Main function to run grid search"""
 

@@ -40,7 +40,7 @@ def render_human_labeling_page():
         st.session_state.human_labels = load_human_labels()
 
     # Check if we have model predictions
-    if "eom_pattern" not in classification_data.columns:
+    if "eom_pattern_primary" not in classification_data.columns:
         st.warning("⚠️ No model predictions found. Please run classification first in the Archetype Tuning page.")
         return
 
