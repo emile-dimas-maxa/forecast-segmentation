@@ -302,18 +302,12 @@ class SegmentationPipeline:
         # Step 6: Importance classification
         df = classify_importance(
             df=df,
-            critical_volume_threshold=critical_volume_threshold,
-            high_volume_threshold=high_volume_threshold,
-            medium_volume_threshold=medium_volume_threshold,
             critical_monthly_avg_threshold=critical_monthly_avg_threshold,
             high_monthly_avg_threshold=high_monthly_avg_threshold,
             medium_monthly_avg_threshold=medium_monthly_avg_threshold,
             critical_max_transaction_threshold=critical_max_transaction_threshold,
             high_max_transaction_threshold=high_max_transaction_threshold,
             medium_max_transaction_threshold=medium_max_transaction_threshold,
-            critical_eom_volume_threshold=critical_eom_volume_threshold,
-            high_eom_volume_threshold=high_eom_volume_threshold,
-            medium_eom_volume_threshold=medium_eom_volume_threshold,
             critical_eom_monthly_threshold=critical_eom_monthly_threshold,
             high_eom_monthly_threshold=high_eom_monthly_threshold,
             medium_eom_monthly_threshold=medium_eom_monthly_threshold,
