@@ -57,9 +57,6 @@ def create_aggregated_features(
         "forecast_month",
         "year",
         "month_num",
-        "month_of_year",
-        "is_quarter_end",
-        "is_year_end",
         "target_eom_amount",
         "overall_importance_tier",
         "eom_importance_tier",
@@ -72,6 +69,8 @@ def create_aggregated_features(
         "eom_recency_score",
         "eom_concentration_score",
         "eom_volume_score",
+        "eom_pattern_primary",
+        "eom_pattern_confidence_pct",
         "prob_continuous_stable_pct",
         "prob_continuous_volatile_pct",
         "prob_intermittent_active_pct",
@@ -79,8 +78,9 @@ def create_aggregated_features(
         "prob_rare_recent_pct",
         "prob_rare_stale_pct",
         "pattern_uncertainty",
-        "eom_pattern_primary",
-        "eom_pattern_confidence_pct",
+        "general_pattern",
+        "segment_name",
+        "full_segment_name",
         "combined_priority",
         "recommended_method",
         "forecast_complexity",
@@ -98,21 +98,66 @@ def create_aggregated_features(
         "monthly_cv",
         "transaction_regularity",
         "activity_rate",
-        "total_active_months_12m",
+        "transaction_dispersion",
+        "quarter_end_concentration",
+        "year_end_concentration",
+        "active_months_12m",
         "total_nonzero_eom_count",
-        "total_months_of_history",
+        "months_inactive",
+        "months_of_history",
+        "cumulative_overall_portfolio_pct",
+        "cumulative_eom_portfolio_pct",
         "lag_1m_eom",
         "lag_3m_eom",
         "lag_12m_eom",
         "eom_ma3",
         "eom_yoy_growth",
         "eom_mom_growth",
+        "is_quarter_end",
+        "is_year_end",
+        "month_of_year",
         "is_zero_eom",
         "current_month_has_eom",
-        "cumulative_overall_portfolio_pct",
-        "cumulative_eom_portfolio_pct",
-        "dim_value_count",
-        "unique_dim_value_count",
+        "raw_rf__active_months_12m",
+        "raw_rf__rolling_avg_day_dispersion",
+        "raw_rf__rolling_avg_monthly_volume",
+        "raw_rf__rolling_avg_non_eom",
+        "raw_rf__rolling_avg_nonzero_eom",
+        "raw_rf__rolling_avg_transactions",
+        "raw_rf__rolling_eom_volume_12m",
+        "raw_rf__rolling_max_eom",
+        "raw_rf__rolling_max_transaction",
+        "raw_rf__rolling_non_eom_volume_12m",
+        "raw_rf__rolling_nonzero_eom_months",
+        "raw_rf__rolling_quarter_end_volume",
+        "raw_rf__rolling_std_eom",
+        "raw_rf__rolling_std_monthly",
+        "raw_rf__rolling_std_transactions",
+        "raw_rf__rolling_total_volume_12m",
+        "raw_rf__rolling_year_end_volume",
+        "raw_rf__rolling_zero_eom_months",
+        "raw_rf__total_nonzero_eom_count",
+        "raw_rf__eom_amount_12m_ago",
+        "raw_rf__eom_amount_3m_ago",
+        "raw_rf__eom_amount_1m_ago",
+        "raw_rf__eom_ma3",
+        "raw_rf__months_of_history",
+        "raw_rf__months_since_last_eom",
+        "raw_pm__eom_concentration",
+        "raw_pm__eom_predictability",
+        "raw_pm__eom_frequency",
+        "raw_pm__eom_zero_ratio",
+        "raw_pm__eom_spike_ratio",
+        "raw_pm__eom_cv",
+        "raw_pm__monthly_cv",
+        "raw_pm__transaction_regularity",
+        "raw_pm__activity_rate",
+        "raw_pm__quarter_end_concentration",
+        "raw_pm__year_end_concentration",
+        "raw_pm__transaction_dispersion",
+        "raw_pm__has_eom_history",
+        "raw_pm__months_inactive",
+        "raw_pm__eom_periodicity",
     ]
 
     # Step 1: Select date
@@ -189,20 +234,32 @@ def create_aggregated_features(
             # Portfolio percentiles - SUM (as requested)
             F.sum("cumulative_overall_portfolio_pct").alias("cumulative_overall_portfolio_pct"),
             F.sum("cumulative_eom_portfolio_pct").alias("cumulative_eom_portfolio_pct"),
-            # Count of original dim_values in this aggregated group
-            F.count("*").alias("dim_value_count"),
-            F.count_distinct("dim_value").alias("unique_dim_value_count"),
             # Special EOM pattern label for aggregated others
             F.lit("AGGREGATED_OTHERS").alias("eom_pattern_primary"),
-        )
-        .with_columns(
-            [col for col in original_columns if col not in ["dim_value", "aggregated_dim_value"]],
-            [F.lit(None) for col in original_columns if col not in ["dim_value", "aggregated_dim_value"]],
+            # Set all other feature columns to NULL
+            *[
+                F.lit(None).alias(col)
+                for col in original_columns
+                if col
+                not in [
+                    "dim_value",
+                    "forecast_month",
+                    "year",
+                    "month_num",
+                    "month_of_year",
+                    "is_quarter_end",
+                    "is_year_end",
+                    "target_eom_amount",
+                    "cumulative_overall_portfolio_pct",
+                    "cumulative_eom_portfolio_pct",
+                    "eom_pattern_primary",
+                ]
+            ],
         )
     )
 
     logger.info(f"Created {others_aggregated.count()} others aggregated rows")
-    logger.info(f"Unioning individual and others aggregated rows")
+    logger.info("Unioning individual and others aggregated rows")
     df = individual_aggregated.union(others_aggregated)
     logger.info(f"Created aggregated features from segmentation output with {df.count()} rows")
     return df
