@@ -14,7 +14,7 @@ class DirectionArimaModel(BaseForecastModel):
     order: tuple = Field(description="Order of the ARIMA model", default=(1, 1, 1))
     dimensions: list[str] = Field(description="Dimensions of the model", default=["dim_value"])
     target_col: str = Field(description="Target column of the model", default="target")
-    date_col: str = Field(description="Date column of the model", default="date")
+    date_col: str = Field(description="Date column of the model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the model", default=1)
     models: dict[str, ARIMA] | None = Field(description="Fitted ARIMA models for each direction", default=None)
 
@@ -55,7 +55,7 @@ class DirectionArimaModel(BaseForecastModel):
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data with transformations."""
         if not self.models:
-            raise ValueError("Model must be fitted before prediction")
+            raise ValueError(f"Direction ARIMA model must be fitted before prediction")
 
         # Transform the data
         transformed_data = self._transform_data(data)
@@ -69,9 +69,18 @@ class DirectionArimaModel(BaseForecastModel):
                 # If no model for this direction, return NaN
                 prediction = pd.DataFrame([float("nan")] * self.forecast_horizon, columns=["prediction"])
             else:
-                # Generate forecast
-                forecast = arima_model.forecast(steps=self.forecast_horizon)
-                prediction = pd.DataFrame(forecast, columns=["prediction"])
+                try:
+                    # Generate forecast
+                    forecast = arima_model.forecast(steps=self.forecast_horizon)
+                    # Handle both scalar and array results
+                    if hasattr(forecast, "__len__") and len(forecast) > 0:
+                        prediction = pd.DataFrame(forecast, columns=["prediction"])
+                    else:
+                        # Handle scalar results
+                        prediction = pd.DataFrame([float(forecast)] * self.forecast_horizon, columns=["prediction"])
+                except Exception as e:
+                    # If forecasting fails, use NaN predictions
+                    prediction = pd.DataFrame([float("nan")] * self.forecast_horizon, columns=["prediction"])
 
             # Add direction column to prediction
             prediction["direction"] = direction

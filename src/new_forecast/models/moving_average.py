@@ -15,7 +15,7 @@ class MovingAverageModel(BaseForecastModel):
     window: int = Field(description="Window size for moving average", default=3)
     dimensions: list[str] = Field(description="Dimensions of the moving average model", default=[])
     target_col: str = Field(description="Target column of the moving average model", default="target")
-    date_col: str = Field(description="Date column of the moving average model", default="date")
+    date_col: str = Field(description="Date column of the moving average model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the moving average model", default=1)
     historical_data: dict[tuple, deque] | None = Field(description="Historical data for moving average", default=None)
 
@@ -43,7 +43,7 @@ class MovingAverageModel(BaseForecastModel):
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data"""
         if not self.historical_data:
-            raise ValueError("Model must be fitted before prediction")
+            raise ValueError(f"Moving Average model must be fitted before prediction")
 
         def _predict_group(group):
             """Generate predictions for a group using stored historical data."""

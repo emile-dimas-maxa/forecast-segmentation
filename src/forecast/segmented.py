@@ -3,6 +3,7 @@
 from typing import Any
 
 import pandas as pd
+from loguru import logger
 
 from src.forecast.models.arima import ARIMAModel
 from src.forecast.models.base import BaseSegmentModel
@@ -78,7 +79,7 @@ class SegmentedForecastModel(PythonModel):
                 model_config = self.model_mapping[segment]
             else:
                 model_config = self.fallback_model
-                print(f"Using fallback model for segment '{segment}'")
+                logger.warning(f"Using fallback model for segment '{segment}'")
 
             model = self._create_model(model_config)
             model.fit(segment_data, self.target_col, self.dimensions)
@@ -125,7 +126,7 @@ class SegmentedForecastModel(PythonModel):
             if segment in self.fitted_models:
                 model = self.fitted_models[segment]
             else:
-                print(f"Segment '{segment}' not seen during training, using fallback model")
+                logger.info(f"Segment '{segment}' not seen during training, using fallback model")
                 model = self._create_model(self.fallback_model)
                 model.fit(segment_data, self.target_col, self.dimensions)
 

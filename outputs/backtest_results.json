@@ -1,0 +1,105 @@
+{
+  "aggregated_others_null_continuous_stable_moving_average_continuous_volatile_net_moving_average_intermittent_active_direction_arima_intermittent_dormant_direction_arima_rare_recent_arima_rare_stale_null_7404142836830259541": {
+    "combination_id": "aggregated_others_null_continuous_stable_moving_average_continuous_volatile_net_moving_average_intermittent_active_direction_arima_intermittent_dormant_direction_arima_rare_recent_arima_rare_stale_null_7404142836830259541",
+    "name": "aggregated_others_null_continuous_stable_moving_average_continuous_volatile_net_moving_average_intermittent_active_direction_arima_intermittent_dormant_direction_arima_rare_recent_arima_rare_stale_null",
+    "description": "Fixed model for AGGREGATED_OTHERS for AGGREGATED_OTHERS, Moving Average (window=3) for CONTINUOUS_STABLE, Net Moving Average (forecasts net value) for CONTINUOUS_VOLATILE, Direction ARIMA (forecasts credit/debit separately) for INTERMITTENT_ACTIVE, Direction ARIMA (forecasts credit/debit separately) for INTERMITTENT_DORMANT, ARIMA(1,1,1) for RARE_RECENT, Fixed model for RARE_STALE for RARE_STALE",
+    "model_mapping": "segment_specific",
+    "config": {
+      "NO_EOM": {
+        "name": "null"
+      },
+      "RARE_STALE": {
+        "name": "null"
+      },
+      "AGGREGATED_OTHERS": {
+        "name": "null"
+      },
+      "CONTINUOUS_STABLE": {
+        "name": "moving_average",
+        "window": 3
+      },
+      "CONTINUOUS_VOLATILE": {
+        "name": "net_moving_average",
+        "window": 3
+      },
+      "INTERMITTENT_ACTIVE": {
+        "name": "direction_arima",
+        "order": [
+          1,
+          1,
+          1
+        ]
+      },
+      "INTERMITTENT_DORMANT": {
+        "name": "direction_arima",
+        "order": [
+          1,
+          1,
+          1
+        ]
+      },
+      "RARE_RECENT": {
+        "name": "arima",
+        "order": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "successful_folds": 0,
+    "total_folds": 0,
+    "execution_time": 0.09678292274475098,
+    "train_metrics": {},
+    "validation_metrics": {},
+    "test_metrics": {},
+    "status": "failed",
+    "error": "No successful predictions generated"
+  },
+  "aggregated_others_null_continuous_stable_xgboost_continuous_volatile_random_forest_intermittent_active_net_moving_average_intermittent_dormant_null_rare_recent_net_arima_rare_stale_null_4101603731959213965": {
+    "combination_id": "aggregated_others_null_continuous_stable_xgboost_continuous_volatile_random_forest_intermittent_active_net_moving_average_intermittent_dormant_null_rare_recent_net_arima_rare_stale_null_4101603731959213965",
+    "name": "aggregated_others_null_continuous_stable_xgboost_continuous_volatile_random_forest_intermittent_active_net_moving_average_intermittent_dormant_null_rare_recent_net_arima_rare_stale_null",
+    "description": "Fixed model for AGGREGATED_OTHERS for AGGREGATED_OTHERS, XGBoost (gradient boosting) for CONTINUOUS_STABLE, Random Forest (ensemble method) for CONTINUOUS_VOLATILE, Net Moving Average (forecasts net value) for INTERMITTENT_ACTIVE, Null model (baseline) for INTERMITTENT_DORMANT, Net ARIMA (forecasts net value) for RARE_RECENT, Fixed model for RARE_STALE for RARE_STALE",
+    "model_mapping": "segment_specific",
+    "config": {
+      "NO_EOM": {
+        "name": "null"
+      },
+      "RARE_STALE": {
+        "name": "null"
+      },
+      "AGGREGATED_OTHERS": {
+        "name": "null"
+      },
+      "CONTINUOUS_STABLE": {
+        "name": "xgboost"
+      },
+      "CONTINUOUS_VOLATILE": {
+        "name": "random_forest"
+      },
+      "INTERMITTENT_ACTIVE": {
+        "name": "net_moving_average",
+        "window": 3
+      },
+      "INTERMITTENT_DORMANT": {
+        "name": "null"
+      },
+      "RARE_RECENT": {
+        "name": "net_arima",
+        "order": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "successful_folds": 0,
+    "total_folds": 0,
+    "execution_time": 7.02764892578125,
+    "train_metrics": {},
+    "validation_metrics": {},
+    "test_metrics": {},
+    "status": "failed",
+    "error": "No successful predictions generated"
+  }
+}

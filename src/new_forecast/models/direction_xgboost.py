@@ -16,7 +16,7 @@ class DirectionXGBoostModel(BaseForecastModel):
     learning_rate: float = Field(description="Boosting learning rate", default=0.1)
     dimensions: list[str] = Field(description="Dimensions of the model", default=["dim_value"])
     target_col: str = Field(description="Target column of the model", default="target")
-    date_col: str = Field(description="Date column of the model", default="date")
+    date_col: str = Field(description="Date column of the model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the model", default=1)
     models: dict[str, XGBRegressor] | None = Field(description="Fitted XGBoost models for each direction", default=None)
 
@@ -110,7 +110,7 @@ class DirectionXGBoostModel(BaseForecastModel):
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data with transformations."""
         if not self.models:
-            raise ValueError("Model must be fitted before prediction")
+            raise ValueError(f"Direction XGBoost model must be fitted before prediction")
 
         # Transform the data
         transformed_data = self._transform_data(data)
@@ -134,7 +134,12 @@ class DirectionXGBoostModel(BaseForecastModel):
                 predictions = []
 
                 for _ in range(self.forecast_horizon):
-                    pred = model.predict(last_row)[0]
+                    pred_result = model.predict(last_row)
+                    # Handle both scalar and array results
+                    if hasattr(pred_result, "__len__") and len(pred_result) > 0:
+                        pred = pred_result[0]
+                    else:
+                        pred = float(pred_result)
                     predictions.append(pred)
                     # Update features for next prediction (simplified)
                     last_row = last_row.copy()

@@ -14,7 +14,7 @@ class NetMovingAverageModel(BaseForecastModel):
     window: int = Field(description="Window size for moving average", default=3)
     dimensions: list[str] = Field(description="Dimensions of the model", default=["dim_value"])
     target_col: str = Field(description="Target column of the model", default="target")
-    date_col: str = Field(description="Date column of the model", default="date")
+    date_col: str = Field(description="Date column of the model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the model", default=1)
     historical_data: dict[str, deque] | None = Field(description="Historical data for net series", default=None)
 
@@ -74,7 +74,7 @@ class NetMovingAverageModel(BaseForecastModel):
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data with net transformations."""
         if not self.historical_data:
-            raise ValueError("Model must be fitted before prediction")
+            raise ValueError(f"Net Moving Average model must be fitted before prediction")
 
         # Transform the data
         transformed_data = self._transform_data(data)

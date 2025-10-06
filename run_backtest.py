@@ -16,11 +16,15 @@ Usage:
 import argparse
 import json
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from loguru import logger
+
+# Disable warnings
+warnings.filterwarnings("ignore")
 
 from src.forecast.evaluate import evaluate_forecast_simple
 from src.new_forecast import NewSegmentedForecastModel
@@ -57,21 +61,33 @@ def generate_model_combinations(
     import itertools
     import random
 
+    fixed_segments = {
+        "NO_EOM": {"name": "null"},
+        "RARE_STALE": {"name": "null"},
+        "AGGREGATED_OTHERS": {"name": "null"},
+        "CONTINUOUS_STABLE": {"name": "null"},
+        "INTERMITTENT_ACTIVE": {"name": "null"},
+        "INTERMITTENT_DORMANT": {"name": "null"},
+        "RARE_RECENT": {"name": "null"},
+        "RARE_STALE": {"name": "null"},
+        "AGGREGATED_OTHERS": {"name": "null"},
+    }
+
     # Define all available models
     all_models = [
         {"name": "null", "description": "Null model (baseline)"},
         {"name": "moving_average", "window": 3, "description": "Moving Average (window=3)"},
         {"name": "arima", "order": [1, 1, 1], "description": "ARIMA(1,1,1)"},
-        {"name": "net_arima", "order": [1, 1, 1], "description": "Net ARIMA (forecasts net value)"},
-        {"name": "net_moving_average", "window": 3, "description": "Net Moving Average (forecasts net value)"},
-        {"name": "direction_arima", "order": [1, 1, 1], "description": "Direction ARIMA (forecasts credit/debit separately)"},
-        {
-            "name": "direction_moving_average",
-            "window": 3,
-            "description": "Direction Moving Average (forecasts credit/debit separately)",
-        },
-        {"name": "xgboost", "description": "XGBoost (gradient boosting)"},
-        {"name": "random_forest", "description": "Random Forest (ensemble method)"},
+        # {"name": "net_arima", "order": [1, 1, 1], "description": "Net ARIMA (forecasts net value)"},
+        # {"name": "net_moving_average", "window": 3, "description": "Net Moving Average (forecasts net value)"},
+        # {"name": "direction_arima", "order": [1, 1, 1], "description": "Direction ARIMA (forecasts credit/debit separately)"},
+        # {
+        #     "name": "direction_moving_average",
+        #     "window": 3,
+        #     "description": "Direction Moving Average (forecasts credit/debit separately)",
+        # },
+        # {"name": "xgboost", "description": "XGBoost (gradient boosting)"},
+        # {"name": "random_forest", "description": "Random Forest (ensemble method)"},
     ]
 
     # Extract segments dynamically from the data
@@ -222,7 +238,11 @@ def evaluate_predictions(predictions: pd.DataFrame, period_name: str) -> dict[st
     try:
         # Use the comprehensive evaluation function
         results = evaluate_forecast_simple(
-            predictions, actual_col="actual", prediction_col="prediction", segment_col="eom_pattern_primary", date_col="date"
+            predictions,
+            actual_col="actual",
+            prediction_col="prediction",
+            segment_col="eom_pattern_primary",
+            date_col="forecast_month",
         )
 
         # Extract key metrics from the detailed results
@@ -408,14 +428,14 @@ def main():
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run comprehensive backtesting for segmented forecasting models")
-    parser.add_argument("--data", default="dataset/feature_df.csv", help="Path to feature data CSV file")
+    parser.add_argument("--data", default="outputs/feature_df.csv", help="Path to feature data CSV file")
     parser.add_argument("--output", default="outputs/backtest_results.json", help="Path to output results JSON file")
     parser.add_argument("--config", help="Path to custom configuration JSON file")
     parser.add_argument("--min-iterations", type=int, default=3, help="Minimum number of backtest iterations")
     parser.add_argument("--forecast-horizon", type=int, default=1, help="Forecast horizon")
     parser.add_argument("--input-steps", type=int, default=6, help="Number of input steps for training")
-    parser.add_argument("--test-size", type=int, default=1, help="Size of test set for evaluation")
-    parser.add_argument("--val-size", type=int, default=1, help="Size of validation set for evaluation")
+    parser.add_argument("--test-size", type=int, default=5, help="Size of test set for evaluation")
+    parser.add_argument("--val-size", type=int, default=5, help="Size of validation set for evaluation")
     parser.add_argument(
         "--sample-size",
         type=int,

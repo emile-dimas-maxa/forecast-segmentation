@@ -16,7 +16,7 @@ class XGBoostModel(BaseForecastModel):
     learning_rate: float = Field(description="Boosting learning rate", default=0.1)
     dimensions: list[str] = Field(description="Dimensions of the model", default=[])
     target_col: str = Field(description="Target column of the model", default="target")
-    date_col: str = Field(description="Date column of the model", default="date")
+    date_col: str = Field(description="Date column of the model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the model", default=1)
     models: dict[tuple, XGBRegressor] | None = Field(description="Fitted XGBoost models", default=None)
 
@@ -106,7 +106,7 @@ class XGBoostModel(BaseForecastModel):
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data"""
         if not self.models:
-            raise ValueError("Model must be fitted before prediction")
+            raise ValueError(f"XGBoost model must be fitted before prediction")
 
         # Create features
         features_data = self._create_features(data)

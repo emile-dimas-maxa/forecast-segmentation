@@ -12,7 +12,7 @@ class NullModel(BaseForecastModel):
     name: Literal["null"] = Field(description="Name of the model", default="null")
     dimensions: list[str] = Field(description="Dimensions of the null model", default=[])
     target_col: str = Field(description="Target column of the null model", default="target")
-    date_col: str = Field(description="Date column of the null model", default="date")
+    date_col: str = Field(description="Date column of the null model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the null model", default=1)
 
     def fit(

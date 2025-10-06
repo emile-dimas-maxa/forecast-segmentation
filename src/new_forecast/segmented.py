@@ -3,6 +3,7 @@
 from typing import Any
 
 import pandas as pd
+from loguru import logger
 
 from src.new_forecast.models import (
     ArimaModel,
@@ -47,7 +48,7 @@ class NewSegmentedForecastModel:
         self,
         segment_col: str = "segment",
         target_col: str = "target",
-        date_col: str = "date",
+        date_col: str = "forecast_month",
         dimensions: list[str] = None,
         model_mapping: dict[str, dict[str, Any]] | None = None,
         fallback_model: dict[str, Any] | None = None,
@@ -171,7 +172,7 @@ class NewSegmentedForecastModel:
                 model_config = self.model_mapping[segment]
             else:
                 model_config = self.fallback_model
-                print(f"Using fallback model for segment '{segment}'")
+                logger.info(f"Using fallback model for segment '{segment}'")
 
             model = self._create_model_with_discriminator(model_config)
             model.fit(segment_data)
@@ -207,7 +208,7 @@ class NewSegmentedForecastModel:
                 if hasattr(model, "forecast_horizon"):
                     model.forecast_horizon = forecast_horizon
             else:
-                print(f"Segment '{segment}' not seen during training, using fallback model")
+                logger.info(f"Segment '{segment}' not seen during training, using fallback model")
                 model = self._create_model_with_discriminator(self.fallback_model)
                 model.forecast_horizon = forecast_horizon
                 model.fit(segment_data)
