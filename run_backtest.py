@@ -22,11 +22,19 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+from statsmodels.tools.sm_exceptions import ValueWarning
 
 # Disable warnings
 warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=ValueWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+warnings.filterwarnings("ignore", category=pd.errors.SettingWithCopyWarning)
 
-from src.forecast.evaluate import evaluate_forecast_simple
+from src.new_forecast.evaluate import evaluate_forecast as evaluate_forecast_simple
 from src.new_forecast import NewSegmentedForecastModel
 from src.splitter import TimeSeriesBacktest
 
@@ -75,9 +83,9 @@ def generate_model_combinations(
 
     # Define all available models
     all_models = [
-        {"name": "null", "description": "Null model (baseline)"},
+        # {"name": "null", "description": "Null model (baseline)"},
         {"name": "moving_average", "window": 3, "description": "Moving Average (window=3)"},
-        {"name": "arima", "order": [1, 1, 1], "description": "ARIMA(1,1,1)"},
+        # {"name": "arima", "order": [1, 1, 1], "description": "ARIMA(1,1,1)"},
         # {"name": "net_arima", "order": [1, 1, 1], "description": "Net ARIMA (forecasts net value)"},
         # {"name": "net_moving_average", "window": 3, "description": "Net Moving Average (forecasts net value)"},
         # {"name": "direction_arima", "order": [1, 1, 1], "description": "Direction ARIMA (forecasts credit/debit separately)"},
@@ -209,21 +217,27 @@ def create_model_mapping(combination: dict[str, Any], segments: list[str]) -> di
 
 
 def split_predictions(
-    predictions: pd.DataFrame, test_size: int = 1, val_size: int = 1
+    predictions: pd.DataFrame, test_size: int = 1, val_size: int = 1, date_col: str = "forecast_month"
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Split predictions into train/validation/test sets chronologically."""
 
-    n_total = len(predictions)
-    test_size = min(test_size, n_total // 3)
-    val_size = min(val_size, (n_total - test_size) // 2)
+    # Get unique dates and sort them chronologically
+    unique_dates = sorted(predictions[date_col].unique())
+    n_dates = len(unique_dates)
 
-    # Sort by date to ensure chronological order
-    predictions = predictions.sort_values("forecast_month").reset_index(drop=True)
+    # Adjust sizes to not exceed available dates
+    test_size = min(test_size, n_dates)
+    val_size = min(val_size, n_dates - test_size)
 
-    # Split chronologically: test (last), validation (second last), train (first)
-    test_pred = predictions.tail(test_size)
-    val_pred = predictions.iloc[-(test_size + val_size) : -test_size] if val_size > 0 else pd.DataFrame()
-    train_pred = predictions.iloc[: -(test_size + val_size)] if val_size > 0 else predictions.iloc[:-test_size]
+    # Select date ranges
+    test_dates = unique_dates[-test_size:] if test_size > 0 else []
+    val_dates = unique_dates[-(test_size + val_size) : -test_size] if val_size > 0 else []
+    train_dates = unique_dates[: -(test_size + val_size)] if val_size > 0 else unique_dates[:-test_size]
+
+    # Filter predictions based on selected dates
+    test_pred = predictions[predictions[date_col].isin(test_dates)] if test_dates else pd.DataFrame()
+    val_pred = predictions[predictions[date_col].isin(val_dates)] if val_dates else pd.DataFrame()
+    train_pred = predictions[predictions[date_col].isin(train_dates)] if train_dates else pd.DataFrame()
 
     return train_pred, val_pred, test_pred
 
@@ -246,24 +260,33 @@ def evaluate_predictions(predictions: pd.DataFrame, period_name: str) -> dict[st
         )
 
         # Extract key metrics from the detailed results
-        overall_avg = results[results["level"].str.contains("OVERALL_AVG")]
 
-        if len(overall_avg) > 0:
-            # Get the first row (they should be the same for net metrics)
-            overall_metrics = overall_avg.iloc[0]
-            overall_mae = overall_metrics.get("abs_net_error", float("inf"))
-        else:
-            overall_mae = float("inf")
+        overall_mae = results[lambda _d: _d.eom_pattern_primary == "OVERALL"][lambda _d: _d.forecast_month.isnull()][
+            lambda _d: _d.direction == "NET"
+        ]["mae"].iloc[0]
+
+        results_summary = pd.concat(
+            [
+                results[lambda _d: _d.eom_pattern_primary == "OVERALL"][lambda _d: _d.forecast_month.isnull()],
+                results[lambda _d: _d.eom_pattern_primary == "OVERALL"][lambda _d: _d.forecast_month.notnull()][
+                    lambda _d: _d.direction == "NET"
+                ],
+                results[lambda _d: _d.eom_pattern_primary != "OVERALL"][lambda _d: _d.forecast_month.isnull()][
+                    lambda _d: _d.direction == "NET"
+                ],
+            ]
+        )
 
         return {
             "overall_mae": overall_mae,
             "n_predictions": len(predictions),
             "n_segments": predictions["eom_pattern_primary"].nunique(),
-            "detailed_results": results.to_dict("records") if len(results) <= 10 else "Too many detailed results to include",
+            "detailed_results": results_summary.to_dict("records"),
         }
 
     except Exception as e:
         logger.warning(f"Evaluation failed for {period_name}: {e}")
+        raise e
         return {"error": str(e)}
 
 
@@ -271,6 +294,9 @@ def run_backtest_for_combination(
     combination: dict[str, Any], data: pd.DataFrame, segments: list[str], backtest_params: dict[str, Any]
 ) -> dict[str, Any]:
     """Run backtest for a single model combination."""
+
+    for k, v in combination["config"].items():
+        logger.info(f"{k}: {v}")
 
     start_time = time.time()
 
@@ -328,9 +354,12 @@ def run_backtest_for_combination(
                     continue
 
                 # Add actual values and metadata
-                predictions["actual"] = test_df["target_eom_amount"].values
+                # predictions["actual"] = test_df["target_eom_amount"].values
                 predictions["fold"] = fold_idx
                 predictions["forecast_month"] = test_df["forecast_month"].values
+                predictions = predictions.merge(
+                    test_df[["forecast_month", "target_eom_amount", "dim_value"]], on=["forecast_month", "dim_value"], how="left"
+                ).rename(columns={"target_eom_amount": "actual"})
 
                 # Check for valid predictions (not all NaN)
                 valid_preds = predictions.dropna(subset=["prediction"])
@@ -389,6 +418,7 @@ def run_backtest_for_combination(
 
     except Exception as e:
         end_time = time.time()
+        raise e
         logger.error(f"✗ {combination['name']}: {e}")
 
         return {

@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from typing import Literal
 
+from loguru import logger
 import numpy as np
 import pandas as pd
 from pydantic import Field
@@ -29,25 +30,41 @@ class MovingAverageModel(BaseForecastModel):
 
         data_grouped = data.groupby(self.dimensions) if self.dimensions else data
 
-        def _store_historical_data(group):
-            values = group[self.target_col].dropna()
-            if len(values) >= self.window:
-                key = group.name if isinstance(group.name, tuple) else (group.name,) if self.dimensions else tuple()
-                self.historical_data[key] = deque(values.tail(self.window), maxlen=self.window)
-            return group
-
-        data_grouped.apply(_store_historical_data)
+        self.historical_data = data_grouped.apply(
+            lambda x: x.sort_values(self.date_col)[self.target_col].dropna().tail(self.window).values
+        ).to_dict()
 
         return self
 
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data"""
         if not self.historical_data:
-            raise ValueError(f"Moving Average model must be fitted before prediction")
+            logger.warning(self.historical_data)
+            raise ValueError("Moving Average model must be fitted before prediction")
 
-        def _predict_group(group):
-            """Generate predictions for a group using stored historical data."""
-            key = group.name if isinstance(group.name, tuple) else (group.name,) if self.dimensions else tuple()
+        if self.dimensions:
+
+            def _predict_group(group):
+                """Generate predictions for a group using stored historical data."""
+                key = group.name
+                stored_values = self.historical_data.get(key, [])
+
+                # Use np.nan if insufficient historical data
+                if len(stored_values) < self.window:
+                    prediction = 0.0
+                else:
+                    prediction = sum(stored_values) / len(stored_values)
+
+                # Create prediction DataFrame for each row in the group
+                result = pd.DataFrame([prediction] * len(group), columns=["prediction"])
+                return result
+
+            data_grouped = data.groupby(self.dimensions)
+            results = data_grouped.apply(_predict_group)
+            results = results.reset_index()
+        else:
+            # If no dimensions, treat entire dataset as one group
+            key = tuple()  # Empty tuple for no dimensions case
             stored_values = self.historical_data.get(key)
 
             # Use np.nan if insufficient historical data
@@ -56,16 +73,8 @@ class MovingAverageModel(BaseForecastModel):
             else:
                 prediction = sum(stored_values) / len(stored_values)
 
-            # Create prediction DataFrame for each row in the group
-            result = pd.DataFrame([prediction] * len(group), columns=["prediction"])
-            return result
-
-        data_grouped = data.groupby(self.dimensions) if self.dimensions else data
-
-        results = data_grouped.apply(_predict_group)
-
-        if self.dimensions:
-            results = results.reset_index()
+            # Create prediction DataFrame for each row
+            results = pd.DataFrame([prediction] * len(data), columns=["prediction"])
 
         # Ensure we have the same number of predictions as input rows
         if len(results) != len(data):
