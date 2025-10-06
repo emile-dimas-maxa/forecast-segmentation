@@ -186,3 +186,4 @@ data/
 
 app/configs/
 .docker-env
+.ruff_cache/
