@@ -1,7 +1,8 @@
-from collections import defaultdict, deque
 from typing import Literal
 
+import numpy as np
 import pandas as pd
+from loguru import logger
 from pydantic import Field
 
 from src.new_forecast.models.base import BaseForecastModel
@@ -16,7 +17,7 @@ class DirectionMovingAverageModel(BaseForecastModel):
     target_col: str = Field(description="Target column of the model", default="target")
     date_col: str = Field(description="Date column of the model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the model", default=1)
-    historical_data: dict[str, deque] | None = Field(description="Historical data for each direction", default=None)
+    historical_data: dict[str, list] | None = Field(description="Historical data for each direction", default=None)
 
     def _transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Transform data by creating direction column and aggregating by direction and date."""
@@ -38,27 +39,21 @@ class DirectionMovingAverageModel(BaseForecastModel):
         transformed_data = self._transform_data(data)
 
         # Initialize historical data storage
-        self.historical_data = defaultdict(lambda: deque(maxlen=self.window))
+        self.historical_data = {}
 
-        def _fit_direction(direction_data):
-            """Fit moving average for a specific direction."""
-            direction = direction_data["direction"].iloc[0]
-            direction_data = direction_data.sort_values(self.date_col)
+        data_grouped = transformed_data.groupby("direction")
 
-            values = direction_data[self.target_col].dropna()
-            if len(values) >= self.window:
-                self.historical_data[direction] = deque(values.tail(self.window), maxlen=self.window)
-
-            return direction_data
-
-        transformed_data.groupby("direction").apply(_fit_direction)
+        self.historical_data = data_grouped.apply(
+            lambda x: x.sort_values(self.date_col)[self.target_col].dropna().tail(self.window).values
+        ).to_dict()
 
         return self
 
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data with transformations."""
         if not self.historical_data:
-            raise ValueError(f"Direction Moving Average model must be fitted before prediction")
+            logger.warning(self.historical_data)
+            raise ValueError("Direction Moving Average model must be fitted before prediction")
 
         # Transform the data
         transformed_data = self._transform_data(data)
@@ -66,19 +61,15 @@ class DirectionMovingAverageModel(BaseForecastModel):
         def _predict_direction(direction_data):
             """Generate predictions for a specific direction."""
             direction = direction_data["direction"].iloc[0]
-            stored_values = self.historical_data.get(direction)
+            stored_values = self.historical_data.get(direction, [])
 
-            # Use NaN if insufficient historical data
-            if not stored_values or len(stored_values) < self.window:
-                prediction = pd.DataFrame([float("nan")] * self.forecast_horizon, columns=["prediction"])
-            else:
-                # Calculate moving average
-                avg_value = sum(stored_values) / len(stored_values)
-                prediction = pd.DataFrame([avg_value] * self.forecast_horizon, columns=["prediction"])
+            # Use 0.0 if insufficient historical data (matching moving_average.py logic)
+            prediction = 0.0 if len(stored_values) < self.window else sum(stored_values) / len(stored_values)
 
-            # Add direction column to prediction
-            prediction["direction"] = direction
-            return prediction
+            # Create prediction DataFrame for each row in the group
+            result = pd.DataFrame([prediction] * len(direction_data), columns=["prediction"])
+            result["direction"] = direction
+            return result
 
         # Group by direction and predict
         results = transformed_data.groupby("direction").apply(_predict_direction)
@@ -93,5 +84,16 @@ class DirectionMovingAverageModel(BaseForecastModel):
 
         # Add dim_value column by reconstructing it from direction
         results["dim_value"] = "::" + results["direction"]
+
+        # Ensure we have the same number of predictions as input rows
+        if len(results) != len(data):
+            # If we have fewer predictions than input rows, repeat the last prediction
+            if len(results) < len(data):
+                last_pred = results.iloc[-1]["prediction"] if len(results) > 0 else np.nan
+                additional_preds = pd.DataFrame([last_pred] * (len(data) - len(results)), columns=["prediction"])
+                results = pd.concat([results, additional_preds], ignore_index=True)
+            # If we have more predictions than input rows, take only the first N
+            elif len(results) > len(data):
+                results = results.iloc[: len(data)]
 
         return pd.concat([data, results], ignore_index=True)

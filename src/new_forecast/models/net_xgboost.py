@@ -42,7 +42,7 @@ class NetXGBoostModel(BaseForecastModel):
             pivot_data["net"] = 0
 
         # Melt back to long format
-        net_data = pivot_data[["date", "net"]].copy()
+        net_data = pivot_data[[self.date_col, "net"]].copy()
         net_data["direction"] = "net"
         net_data = net_data.rename(columns={"net": self.target_col})
 

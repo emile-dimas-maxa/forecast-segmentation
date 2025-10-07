@@ -84,8 +84,8 @@ def generate_model_combinations(
     # Define all available models
     all_models = [
         # {"name": "null", "description": "Null model (baseline)"},
-        {"name": "moving_average", "window": 3, "description": "Moving Average (window=3)"},
-        # {"name": "arima", "order": [1, 1, 1], "description": "ARIMA(1,1,1)"},
+        # {"name": "moving_average", "window": 3, "description": "Moving Average (window=3)"},
+        {"name": "arima", "order": [1, 1, 1], "description": "ARIMA(1,1,1)"},
         # {"name": "net_arima", "order": [1, 1, 1], "description": "Net ARIMA (forecasts net value)"},
         # {"name": "net_moving_average", "window": 3, "description": "Net Moving Average (forecasts net value)"},
         # {"name": "direction_arima", "order": [1, 1, 1], "description": "Direction ARIMA (forecasts credit/debit separately)"},
@@ -170,25 +170,6 @@ def generate_model_combinations(
         combinations = random.sample(combinations, sample_size)
     else:
         logger.info(f"Using all {len(combinations)} combinations")
-
-    # Note: ML models (XGBoost, Random Forest) are available but may have data compatibility issues
-    # They can be enabled by uncommenting the following lines if data preprocessing is improved
-    # try:
-    #     import xgboost
-    #     ml_models = [
-    #         {"name": "xgboost", "description": "XGBoost"},
-    #         {"name": "random_forest", "description": "Random Forest"},
-    #     ]
-    #
-    #     for model_config in ml_models:
-    #         combinations.append({
-    #             "name": f"all_{model_config['name']}",
-    #             "model_mapping": "all_segments",
-    #             "config": {k: v for k, v in model_config.items() if k != "description"},
-    #             "description": f"{model_config['description']} for all segments",
-    #         })
-    # except ImportError:
-    #     logger.warning("XGBoost not available, skipping ML models")
 
     logger.info(f"Generated {len(combinations)} model combinations")
     return combinations

@@ -1,9 +1,52 @@
+import warnings
 from typing import Literal
-from pydantic import Field, model_validator
-from src.new_forecast.models.base import BaseForecastModel
-import pandas as pd
 
+import pandas as pd
+from pydantic import Field
 from statsmodels.tsa.arima.model import ARIMA
+from loguru import logger
+from src.new_forecast.models.base import BaseForecastModel
+
+
+def fit_arima_robust(series: pd.Series, order: tuple, min_samples: int = 10) -> ARIMA | None:
+    """
+    Fit ARIMA model with robust error handling for insufficient data.
+
+    Args:
+        series: Time series data to fit
+        order: ARIMA order (p, d, q)
+        min_samples: Minimum number of samples required to fit ARIMA
+
+    Returns:
+        Fitted ARIMA model or None if insufficient data
+    """
+    # Remove NaN values
+    series_clean = series.dropna()
+
+    # Check if we have enough data
+    if len(series_clean) < min_samples:
+        warnings.warn(f"Insufficient data for ARIMA fitting: {len(series_clean)} samples < {min_samples} required", stacklevel=2)
+        return None
+
+    # Check if we have enough data for the specific ARIMA order
+    p, d, q = order
+    min_required = max(p + d + q + 1, min_samples)
+
+    if len(series_clean) < min_required:
+        warnings.warn(
+            f"Insufficient data for ARIMA({p},{d},{q}): {len(series_clean)} samples < {min_required} required", stacklevel=2
+        )
+        return None
+
+    try:
+        # Try to fit the ARIMA model
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # Suppress convergence warnings
+            model = ARIMA(series_clean, order=order).fit()
+        return model
+    except Exception as e:
+        warnings.warn(f"ARIMA fitting failed: {str(e)}", stacklevel=2)
+        return None
 
 
 class ArimaModel(BaseForecastModel):
@@ -15,7 +58,8 @@ class ArimaModel(BaseForecastModel):
     target_col: str = Field(description="Target column of the ARIMA model", default="target")
     date_col: str = Field(description="Date column of the ARIMA model", default="forecast_month")
     forecast_horizon: int = Field(description="Forecast horizon of the ARIMA model", default=1)
-    models: dict[tuple, ARIMA] | None = Field(description="Models of the ARIMA model", default=None)
+    min_samples: int = Field(description="Minimum number of samples required to fit ARIMA", default=10)
+    models: dict[tuple, ARIMA | None] | None = Field(description="Models of the ARIMA model", default=None)
 
     def fit(
         self,
@@ -23,20 +67,21 @@ class ArimaModel(BaseForecastModel):
     ) -> "ArimaModel":
         """Fit the model to the data"""
         # manage multiple time series using groupby and apply
-
+        logger.info(f"Fitting ARIMA model with dimensions: {self.dimensions}")
         data_grouped = data.groupby(self.dimensions) if self.dimensions else data
 
-        self.models = data_grouped.apply(
-            lambda x: ARIMA(x.sort_values(self.date_col)[self.target_col], order=self.order).fit()
-        ).to_dict()
+        def fit_single_arima(group):
+            """Fit ARIMA for a single group with robust error handling."""
+            series = group.sort_values(self.date_col)[self.target_col]
+            return fit_arima_robust(series, self.order, self.min_samples)
+
+        self.models = data_grouped.apply(fit_single_arima).to_dict()
+        logger.info(f"Fitted ARIMA model with dimensions: {self.dimensions}")
         return self
 
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Predict the data"""
         results = []
-
-        if not self.models:
-            raise ValueError(f"ARIMA model must be fitted before prediction")
 
         data_grouped = data.groupby(self.dimensions) if self.dimensions else data
 
@@ -46,6 +91,7 @@ class ArimaModel(BaseForecastModel):
             model = self.models.get(key)
 
             if model is None or len(group) == 0:
+                # Model failed to fit due to insufficient data or other issues
                 prediction = pd.DataFrame([float("nan")] * len(group), columns=["prediction"])
             else:
                 try:
@@ -64,7 +110,7 @@ class ArimaModel(BaseForecastModel):
                     else:
                         # Handle scalar results
                         prediction = pd.DataFrame([float(forecast_result)] * len(group), columns=["prediction"])
-                except Exception as e:
+                except Exception:
                     # If forecasting fails, use NaN predictions
                     prediction = pd.DataFrame([float("nan")] * len(group), columns=["prediction"])
 
